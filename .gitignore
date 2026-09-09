@@ -1,0 +1,12 @@
+Backend/*.local
+Backend/backend-*
+Backend/testdb-*
+Backend/coverage*.out
+GameServer/.godot/
+Build/
+Artifacts/
+*.pem
+*.key
+.env
+.env.*
+!.env.example

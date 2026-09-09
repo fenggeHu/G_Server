@@ -1,0 +1,13 @@
+78098b89c88a74ebe8c20117b8754620
+::res://::1788947727
+::res://Bootstrap/::1788947728
+main.gd::GDScript::7485226178541879408::1788947543::0::1::::<>Node<><>0<>0<><>::
+Main.tscn::PackedScene::-1::1788947543::0::1::::<><><>0<>0<><>::res://Bootstrap/main.gd
+::res://Server/::1788947728
+server.gd::GDScript::516904470437023429::1788947928::0::1::::<>Node<><>0<>0<><>::
+::res://Shared/::1788947728
+network_policy.gd::GDScript::2630471174822594032::1788947543::0::1::::<>RefCounted<><>0<>0<><>::
+protocol.gd::GDScript::3599814202383050253::1788948114::0::1::::G0Protocol<>RefCounted<><>0<>0<><>::
+::res://tests/::1788947928
+g0_contract.gd::GDScript::357295005483784238::1788947928::0::1::::<>SceneTree<><>0<>0<><>::
+::res://tools/::1788947589

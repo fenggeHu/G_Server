@@ -1,0 +1,231 @@
+package transport
+
+import (
+	"aigame/server/backend/domain"
+	"aigame/server/backend/usecase"
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/json"
+	"errors"
+	"github.com/jackc/pgx/v5"
+	"io"
+	"net"
+	"net/http"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf8"
+)
+
+type Handler struct {
+	Service   *usecase.Service
+	AllowHTTP bool
+	mu        sync.Mutex
+	windows   map[string][]time.Time
+}
+
+func New(s *usecase.Service, allow bool) *Handler {
+	return &Handler{Service: s, AllowHTTP: allow, windows: make(map[string][]time.Time)}
+}
+func (h *Handler) slot(key string, limit int) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	now := time.Now()
+	for k, v := range h.windows {
+		if now.Sub(v[len(v)-1]) >= time.Minute {
+			delete(h.windows, k)
+		}
+	}
+	v, ok := h.windows[key]
+	if !ok && len(h.windows) >= 2048 {
+		return false
+	}
+	for len(v) > 0 && now.Sub(v[0]) >= time.Minute {
+		v = v[1:]
+	}
+	if len(v) >= limit {
+		return false
+	}
+	h.windows[key] = append(v, now)
+	return true
+}
+func response(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+func failure(w http.ResponseWriter, status int, s string) {
+	response(w, status, map[string]string{"detail": s})
+}
+func dbError(w http.ResponseWriter, e error) {
+	if errors.Is(e, pgx.ErrNoRows) || errors.Is(e, usecase.ErrUnauthorized) {
+		failure(w, 401, "unauthorized")
+	} else {
+		failure(w, 503, "database unavailable")
+	}
+}
+func text(x string, max int) bool {
+	return utf8.ValidString(x) && utf8.RuneCountInString(x) > 0 && utf8.RuneCountInString(x) <= max
+}
+
+type login struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+type ticketReq struct {
+	Preset  string `json:"preset_id"`
+	Proto   int    `json:"protocol_version"`
+	Content string `json:"gameplay_content_hash"`
+}
+type redeemReq struct {
+	Ticket  string `json:"ticket"`
+	Room    string `json:"room_id"`
+	Proto   int    `json:"protocol_version"`
+	Content string `json:"gameplay_content_hash"`
+	Config  string `json:"resolved_config_hash"`
+}
+
+func decode(b []byte, v any) bool {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.DisallowUnknownFields()
+	if d.Decode(v) != nil {
+		return false
+	}
+	return d.Decode(new(any)) == io.EOF
+}
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if r.TLS == nil && !(h.AllowHTTP && net.ParseIP(ip) != nil && net.ParseIP(ip).IsLoopback()) {
+		failure(w, 400, "https required")
+		return
+	}
+	limits := map[string]int{"/v1/auth/login": 5, "/v1/auth/logout": 30, "/v1/tickets": 30, "/v1/internal/tickets/redeem": 60}
+	if n := limits[r.URL.Path]; n > 0 && !h.slot(r.URL.Path+"|"+ip, n) {
+		w.Header().Set("Retry-After", "60")
+		failure(w, 429, "rate limited")
+		return
+	}
+	if v := r.Header.Values("Content-Length"); len(v) > 0 {
+		n, e := strconv.ParseUint(v[0], 10, 64)
+		if e != nil || len(v) != 1 {
+			failure(w, 400, "invalid content length")
+			return
+		}
+		if n > 8192 {
+			failure(w, 413, "request too large")
+			return
+		}
+	}
+	if r.ContentLength > 8192 {
+		failure(w, 413, "request too large")
+		return
+	}
+	b, e := io.ReadAll(http.MaxBytesReader(w, r.Body, 8192))
+	if e != nil {
+		var size *http.MaxBytesError
+		if errors.As(e, &size) {
+			failure(w, 413, "request too large")
+		} else {
+			failure(w, 400, "invalid request")
+		}
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	path := r.URL.Path
+	if path == "/health/live" || path == "/health/ready" {
+		if r.Method != "GET" {
+			failure(w, 405, "Method Not Allowed")
+			return
+		}
+		if path == "/health/ready" {
+			if h.Service.Store.Ping(ctx) != nil {
+				failure(w, 503, "not ready")
+				return
+			}
+			response(w, 200, map[string]string{"status": "ready"})
+		} else {
+			response(w, 200, map[string]string{"status": "ok"})
+		}
+		return
+	}
+	if limits[path] == 0 {
+		failure(w, 404, "Not Found")
+		return
+	}
+	if r.Method != "POST" {
+		failure(w, 405, "Method Not Allowed")
+		return
+	}
+	if path == "/v1/auth/login" {
+		var x login
+		if !decode(b, &x) || !text(x.Username, 64) || !text(x.Password, 256) {
+			failure(w, 422, "invalid request")
+			return
+		}
+		t, id, e := h.Service.Login(ctx, x.Username, x.Password)
+		if e != nil {
+			dbError(w, e)
+			return
+		}
+		response(w, 200, map[string]string{"access_token": t, "player_id": id})
+		return
+	}
+	if path == "/v1/internal/tickets/redeem" {
+		want := sha256.Sum256([]byte("Bearer " + h.Service.ServiceToken))
+		got := sha256.Sum256([]byte(r.Header.Get("Authorization")))
+		if subtle.ConstantTimeCompare(want[:], got[:]) != 1 {
+			failure(w, 401, "unauthorized")
+			return
+		}
+		var x redeemReq
+		if !decode(b, &x) || !text(x.Ticket, 256) || !text(x.Room, 128) || !text(x.Content, 128) || !text(x.Config, 128) || x.Proto < 1 || x.Proto > 100 {
+			failure(w, 422, "invalid request")
+			return
+		}
+		out, e := h.Service.Redeem(ctx, domain.Ticket{Token: x.Ticket, RoomID: x.Room, Protocol: x.Proto, Content: x.Content, ConfigHash: x.Config})
+		if e != nil {
+			dbError(w, e)
+			return
+		}
+		response(w, 200, map[string]string{"player_id": out.PlayerID, "room_id": out.RoomID, "preset_id": out.PresetID, "resolved_config_hash": out.ConfigHash})
+		return
+	}
+	auth := strings.Fields(r.Header.Get("Authorization"))
+	if len(auth) != 2 || !strings.EqualFold(auth[0], "Bearer") {
+		failure(w, 401, "unauthorized")
+		return
+	}
+	s, e := h.Service.Auth(ctx, auth[1])
+	if e != nil {
+		dbError(w, e)
+		return
+	}
+	if path == "/v1/auth/logout" {
+		if e = h.Service.Store.RevokeSession(ctx, s.TokenHash); e != nil {
+			dbError(w, e)
+			return
+		}
+		response(w, 200, map[string]string{"status": "ok"})
+		return
+	}
+	var x ticketReq
+	if !decode(b, &x) || !text(x.Preset, 32) || !text(x.Content, 128) || x.Proto < 1 || x.Proto > 100 {
+		failure(w, 422, "invalid request")
+		return
+	}
+	if x.Preset != domain.Preset || x.Content != domain.Content || x.Proto != domain.Proto {
+		failure(w, 409, "version mismatch")
+		return
+	}
+	out, e := h.Service.Ticket(ctx, s.PlayerID, s.TokenHash, x.Preset, x.Content, x.Proto)
+	if e != nil {
+		dbError(w, e)
+		return
+	}
+	response(w, 200, map[string]any{"ticket": out.Token, "room_id": out.RoomID, "host": h.Service.Host, "port": h.Service.Port, "preset_id": out.PresetID, "resolved_config_hash": out.ConfigHash, "protocol_version": out.Protocol, "gameplay_content_hash": out.Content})
+}

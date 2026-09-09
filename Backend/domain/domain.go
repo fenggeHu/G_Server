@@ -1,5 +1,7 @@
 package domain
 
+import "time"
+
 const (
 	Preset  = "exploration"
 	Content = "g0-empty-v1"
@@ -17,3 +19,11 @@ type Ticket struct {
 	Protocol                                      int
 	Content                                       string
 }
+
+type RoomRecord struct {
+	ID, Host, ProtocolVersion, GameplayContentHash, ResolvedConfigHash, Status string
+	Port, Generation, Capacity, UsedPlayers                                    int
+	LastHeartbeat                                                              time.Time
+}
+
+type Reservation struct{ RoomID, PlayerID string }

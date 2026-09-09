@@ -9,6 +9,8 @@ var room_id := "g0-room"
 var base := ""
 var service_token := ""
 var generation := 0
+var auth_generation := 0
+var heartbeat: Timer
 
 func _ready() -> void:
 	_start.call_deferred()
@@ -26,7 +28,11 @@ func _start() -> void:
 	var port := 7000 if OS.get_environment("ROOM_PORT").is_empty() else OS.get_environment("ROOM_PORT").to_int()
 	if not OS.get_environment("ROOM_ID").is_empty():
 		room_id = OS.get_environment("ROOM_ID")
+	generation = max(1, OS.get_environment("ROOM_GENERATION").to_int())
 	if port < 1 or port > 65535:
+		_fatal()
+		return
+	if not await _register_room(port):
 		_fatal()
 		return
 	if loopback:
@@ -46,18 +52,50 @@ func _start() -> void:
 		print("G0_SERVER_AUTHENTICATED")
 	)
 	api.multiplayer_peer = peer
+	heartbeat = Timer.new()
+	heartbeat.wait_time = 30.0
+	heartbeat.timeout.connect(_heartbeat_room)
+	add_child(heartbeat)
+	heartbeat.start()
 	print("G0_SERVER_LISTENING")
+
+func _room_post(path: String, body: Dictionary) -> Array:
+	var http := HTTPRequest.new()
+	http.timeout = 4.0
+	add_child(http)
+	var err := http.request(base + path, ["Content-Type: application/json", "Authorization: Bearer " + service_token], HTTPClient.METHOD_POST, JSON.stringify(body))
+	if err != OK:
+		http.queue_free(); return []
+	var result: Array = await http.request_completed
+	http.queue_free()
+	return result
+
+func _register_room(port: int) -> bool:
+	var response := await _room_post("/v1/internal/rooms/register", {"ID": room_id, "Host": OS.get_environment("ROOM_HOST") if not OS.get_environment("ROOM_HOST").is_empty() else "127.0.0.1", "Port": port, "ProtocolVersion": 1, "GameplayContentHash": P.CONTENT_HASH, "ResolvedConfigHash": POLICY.config_hash(), "Capacity": 8, "Generation": generation, "Status": "ready"})
+	return response.size() > 1 and response[0] == HTTPRequest.RESULT_SUCCESS and response[1] == 200
+
+func _heartbeat_room() -> void:
+	var response := await _room_post("/v1/internal/rooms/heartbeat", {"RoomID": room_id, "Generation": generation, "Capacity": 8, "UsedPlayers": identities.size(), "Status": "ready"})
+	if response.size() <= 1 or response[0] != HTTPRequest.RESULT_SUCCESS or response[1] != 200:
+		print("G1_ROOM_HEARTBEAT_FAILED")
 
 func _pending_peer(id: int) -> void:
 	if pending.size() >= 16 or identities.size() >= 8:
 		_reject(id)
 		return
-	generation += 1
-	pending[id] = {"generation": generation, "submitted": false}
+	auth_generation += 1
+	pending[id] = {"generation": auth_generation, "submitted": false}
 
 func _remove_peer(id: int) -> void:
+	var was_authenticated := identities.has(id)
 	pending.erase(id)
+	var player_id: String = identities.get(id, "")
 	identities.erase(id)
+	var players := get_node_or_null("Players")
+	if was_authenticated and players:
+		var node := players.get_node_or_null(_safe_name(player_id))
+		if node: node.queue_free()
+		player_left.rpc(player_id, id, identities.size())
 
 func _reject(id: int) -> void:
 	_remove_peer(id)
@@ -105,8 +143,27 @@ func _authenticate(id: int, data: PackedByteArray) -> void:
 		_reject(id)
 		return
 	identities[id] = result.player_id
-	multiplayer.send_auth(id, JSON.stringify({"status": "authenticated", "room_id": room_id, "resolved_config_hash": POLICY.config_hash()}).to_utf8_buffer())
+	var players := get_node_or_null("Players")
+	if not players:
+		players = Node.new(); players.name = "Players"; add_child(players)
+	var player := Node3D.new(); player.name = _safe_name(result.player_id); player.set_meta("player_id", result.player_id); player.set_meta("connection_id", id); players.add_child(player)
+	multiplayer.send_auth(id, JSON.stringify({"status": "authenticated", "room_id": room_id, "resolved_config_hash": POLICY.config_hash(), "player_id": result.player_id}).to_utf8_buffer())
 	multiplayer.complete_auth(id)
+	for existing in identities:
+		if existing != id: player_joined.rpc_id(id, identities[existing], existing, identities.size())
+	player_joined.rpc(result.player_id, id, identities.size())
+
+func _safe_name(value: String) -> String:
+	var result := "player_"
+	for c in value:
+		if c.to_lower() in "abcdefghijklmnopqrstuvwxyz0123456789_": result += c
+	return result
+
+@rpc("authority", "call_remote", "reliable")
+func player_joined(_player_id: String, _connection_id: int, _count: int) -> void: pass
+
+@rpc("authority", "call_remote", "reliable")
+func player_left(_player_id: String, _connection_id: int, _count: int) -> void: pass
 
 func _fatal() -> void:
 	print("G0_SERVER_START_FAILED")

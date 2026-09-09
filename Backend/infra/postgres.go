@@ -101,6 +101,60 @@ func (p *PG) RedeemTicket(c context.Context, x domain.Ticket) (domain.Ticket, er
 }
 func domainHash(s string) string           { b := sha256.Sum256([]byte(s)); return fmt.Sprintf("%x", b) }
 func (p *PG) Ping(c context.Context) error { return p.Pool.Ping(c) }
+func (p *PG) RegisterRoom(c context.Context, x domain.RoomRecord) (domain.RoomRecord, error) {
+	e := p.Pool.QueryRow(c, `insert into rooms(room_id,host,port,protocol_version,gameplay_content_hash,resolved_config_hash,capacity,generation,status,used_players,last_heartbeat) values($1,$2,$3,$4,$5,$6,$7,$8,$9,0,now()) on conflict(room_id) do update set host=excluded.host,port=excluded.port,protocol_version=excluded.protocol_version,gameplay_content_hash=excluded.gameplay_content_hash,resolved_config_hash=excluded.resolved_config_hash,capacity=excluded.capacity,generation=excluded.generation,status=excluded.status,last_heartbeat=now() where rooms.generation<excluded.generation returning room_id,host,port,protocol_version,gameplay_content_hash,resolved_config_hash,status,generation,capacity,used_players,last_heartbeat`, x.ID, x.Host, x.Port, x.ProtocolVersion, x.GameplayContentHash, x.ResolvedConfigHash, x.Capacity, x.Generation, x.Status).Scan(&x.ID, &x.Host, &x.Port, &x.ProtocolVersion, &x.GameplayContentHash, &x.ResolvedConfigHash, &x.Status, &x.Generation, &x.Capacity, &x.UsedPlayers, &x.LastHeartbeat)
+	return x, e
+}
+func (p *PG) HeartbeatRoom(c context.Context, id string, g, cap, used int, status string) error {
+	r, e := p.Pool.Exec(c, `update rooms set capacity=$3,used_players=$4,status=$5,last_heartbeat=now() where room_id=$1 and generation=$2 and capacity between 1 and 8`, id, g, cap, used, status)
+	if e != nil {
+		return e
+	}
+	if r.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+func (p *PG) AllocateRoom(c context.Context, player, content string, proto int, config string) (domain.RoomRecord, error) {
+	tx, e := p.Pool.Begin(c)
+	if e != nil {
+		return domain.RoomRecord{}, e
+	}
+	defer tx.Rollback(c)
+	var r domain.RoomRecord
+	e = tx.QueryRow(c, `select room_id,host,port,protocol_version,gameplay_content_hash,resolved_config_hash,status,generation,capacity,used_players,last_heartbeat from rooms where status='ready' and last_heartbeat>now()-interval '15 seconds' and used_players<capacity and protocol_version=$1 and gameplay_content_hash=$2 and resolved_config_hash=$3 order by room_id for update skip locked limit 1`, proto, content, config).Scan(&r.ID, &r.Host, &r.Port, &r.ProtocolVersion, &r.GameplayContentHash, &r.ResolvedConfigHash, &r.Status, &r.Generation, &r.Capacity, &r.UsedPlayers, &r.LastHeartbeat)
+	if e != nil {
+		return r, e
+	}
+	if _, e = tx.Exec(c, `insert into room_reservations(room_id,player_id) values($1,$2)`, r.ID, player); e != nil {
+		return r, e
+	}
+	_, e = tx.Exec(c, `update rooms set used_players=used_players+1 where room_id=$1`, r.ID)
+	if e != nil {
+		return r, e
+	}
+	e = tx.Commit(c)
+	return r, e
+}
+func (p *PG) ReleaseReservation(c context.Context, room, player string) error {
+	tx, e := p.Pool.Begin(c)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback(c)
+	var changed bool
+	e = tx.QueryRow(c, `update room_reservations set released_at=now() where room_id=$1 and player_id=$2 and released_at is null returning true`, room, player).Scan(&changed)
+	if e == pgx.ErrNoRows {
+		return tx.Commit(c)
+	}
+	if e != nil {
+		return e
+	}
+	if _, e = tx.Exec(c, `update rooms set used_players=greatest(used_players-1,0) where room_id=$1`, room); e != nil {
+		return e
+	}
+	return tx.Commit(c)
+}
 func Migrate(ctx context.Context, p *PG) error {
 	path := os.Getenv("MIGRATIONS_DIR")
 	if path == "" {

@@ -103,7 +103,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		failure(w, 400, "https required")
 		return
 	}
-	limits := map[string]int{"/v1/auth/login": 5, "/v1/auth/logout": 30, "/v1/tickets": 30, "/v1/internal/tickets/redeem": 60}
+	limits := map[string]int{"/v1/auth/login": 5, "/v1/auth/logout": 30, "/v1/tickets": 30, "/v1/rooms/allocate": 30, "/v1/internal/tickets/redeem": 60, "/v1/internal/rooms/register": 60, "/v1/internal/rooms/heartbeat": 120, "/v1/internal/rooms/release": 60}
 	if n := limits[r.URL.Path]; n > 0 && !h.slot(r.URL.Path+"|"+ip, n) {
 		w.Header().Set("Retry-After", "60")
 		failure(w, 429, "rate limited")
@@ -195,6 +195,50 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		response(w, 200, map[string]string{"player_id": out.PlayerID, "room_id": out.RoomID, "preset_id": out.PresetID, "resolved_config_hash": out.ConfigHash})
 		return
 	}
+	if strings.HasPrefix(path, "/v1/internal/rooms/") {
+		want := sha256.Sum256([]byte("Bearer " + h.Service.ServiceToken))
+		got := sha256.Sum256([]byte(r.Header.Get("Authorization")))
+		if subtle.ConstantTimeCompare(want[:], got[:]) != 1 {
+			failure(w, 401, "unauthorized")
+			return
+		}
+		if path == "/v1/internal/rooms/register" {
+			var x domain.RoomRecord
+			if !decode(b, &x) || !text(x.ID, 128) || !text(x.Host, 256) || x.Port < 1 || x.Port > 65535 || x.Generation < 1 || x.Capacity < 1 || x.Capacity > 8 {
+				failure(w, 422, "invalid request")
+				return
+			}
+			out, e := h.Service.RegisterRoom(ctx, x)
+			if e != nil {
+				dbError(w, e)
+				return
+			}
+			response(w, 200, out)
+			return
+		}
+		var x struct {
+			RoomID                            string `json:"room_id"`
+			Generation, Capacity, UsedPlayers int
+			Status                            string `json:"status"`
+			PlayerID                          string `json:"player_id"`
+		}
+		if !decode(b, &x) || !text(x.RoomID, 128) {
+			failure(w, 422, "invalid request")
+			return
+		}
+		var e error
+		if path == "/v1/internal/rooms/heartbeat" {
+			e = h.Service.Store.HeartbeatRoom(ctx, x.RoomID, x.Generation, x.Capacity, x.UsedPlayers, x.Status)
+		} else {
+			e = h.Service.Store.ReleaseReservation(ctx, x.RoomID, x.PlayerID)
+		}
+		if e != nil {
+			dbError(w, e)
+			return
+		}
+		response(w, 200, map[string]string{"status": "ok"})
+		return
+	}
 	auth := strings.Fields(r.Header.Get("Authorization"))
 	if len(auth) != 2 || !strings.EqualFold(auth[0], "Bearer") {
 		failure(w, 401, "unauthorized")
@@ -220,6 +264,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if x.Preset != domain.Preset || x.Content != domain.Content || x.Proto != domain.Proto {
 		failure(w, 409, "version mismatch")
+		return
+	}
+	if path == "/v1/rooms/allocate" {
+		out, r, e := h.Service.Allocate(ctx, s.PlayerID, s.TokenHash, x.Preset, x.Content, x.Proto)
+		if e != nil {
+			dbError(w, e)
+			return
+		}
+		response(w, 200, map[string]any{"ticket": out.Token, "room_id": r.ID, "host": r.Host, "port": r.Port, "preset_id": out.PresetID, "resolved_config_hash": out.ConfigHash, "protocol_version": out.Protocol, "gameplay_content_hash": out.Content})
 		return
 	}
 	out, e := h.Service.Ticket(ctx, s.PlayerID, s.TokenHash, x.Preset, x.Content, x.Proto)

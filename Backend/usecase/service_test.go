@@ -26,6 +26,10 @@ func (f *fakeStore) RedeemTicket(context.Context, domain.Ticket) (domain.Ticket,
 	return f.ticket, nil
 }
 func (f *fakeStore) Ping(context.Context) error { return nil }
+func (f *fakeStore) RegisterRoom(context.Context, domain.RoomRecord) (domain.RoomRecord, error) { return domain.RoomRecord{}, nil }
+func (f *fakeStore) HeartbeatRoom(context.Context, string, int, int, int, string) error { return nil }
+func (f *fakeStore) AllocateRoom(context.Context, string, string, int, string) (domain.RoomRecord, error) { return domain.RoomRecord{}, nil }
+func (f *fakeStore) ReleaseReservation(context.Context, string, string) error { return nil }
 func TestConfigHashStableAndTicketBindsPlayer(t *testing.T) {
 	f := &fakeStore{}
 	s := &Service{Store: f}

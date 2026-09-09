@@ -21,6 +21,10 @@ type Store interface {
 	RevokeSession(context.Context, string) error
 	IssueTicket(context.Context, domain.Ticket, string, string) error
 	RedeemTicket(context.Context, domain.Ticket) (domain.Ticket, error)
+	RegisterRoom(context.Context, domain.RoomRecord) (domain.RoomRecord, error)
+	HeartbeatRoom(context.Context, string, int, int, int, string) error
+	AllocateRoom(context.Context, string, string, int, string) (domain.RoomRecord, error)
+	ReleaseReservation(context.Context, string, string) error
 	Ping(context.Context) error
 }
 type Service struct {
@@ -70,6 +74,24 @@ func (s *Service) Ticket(ctx context.Context, playerID, sessionHash, preset, con
 	t := token(48)
 	x := domain.Ticket{Token: t, PlayerID: playerID, RoomID: domain.Room, PresetID: domain.Preset, ConfigHash: ConfigHash(), Protocol: domain.Proto, Content: domain.Content}
 	return x, s.Store.IssueTicket(ctx, x, Hash(t), sessionHash)
+}
+func (s *Service) Allocate(ctx context.Context, playerID, sessionHash, preset, content string, proto int) (domain.Ticket, domain.RoomRecord, error) {
+	if preset != domain.Preset || content != domain.Content || proto != domain.Proto {
+		return domain.Ticket{}, domain.RoomRecord{}, errors.New("version mismatch")
+	}
+	r, err := s.Store.AllocateRoom(ctx, playerID, content, proto, ConfigHash())
+	if err != nil {
+		return domain.Ticket{}, domain.RoomRecord{}, err
+	}
+	t := token(48)
+	x := domain.Ticket{Token: t, PlayerID: playerID, RoomID: r.ID, PresetID: preset, ConfigHash: ConfigHash(), Protocol: proto, Content: content}
+	return x, r, s.Store.IssueTicket(ctx, x, Hash(t), sessionHash)
+}
+func (s *Service) RegisterRoom(ctx context.Context, r domain.RoomRecord) (domain.RoomRecord, error) {
+	if r.Capacity < 1 || r.Capacity > 8 {
+		return r, errors.New("invalid capacity")
+	}
+	return s.Store.RegisterRoom(ctx, r)
 }
 func (s *Service) Redeem(ctx context.Context, x domain.Ticket) (domain.Ticket, error) {
 	if x.RoomID != domain.Room || x.Protocol != domain.Proto || x.Content != domain.Content || x.ConfigHash != ConfigHash() {

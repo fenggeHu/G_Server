@@ -13,6 +13,8 @@ var base := ""
 var service_token := ""
 var generation := 0
 var auth_generation := 0
+var leases: Dictionary = {}
+var pickup_entities := {"pickup-1": {"position": Vector3.ZERO, "state": "available", "item": "coin"}}
 var heartbeat: Timer
 
 func _ready() -> void:
@@ -65,6 +67,7 @@ func _start() -> void:
 	heartbeat.timeout.connect(_heartbeat_room)
 	add_child(heartbeat)
 	heartbeat.start()
+	var lease_timer := Timer.new(); lease_timer.wait_time = 10.0; lease_timer.timeout.connect(_renew_sessions); add_child(lease_timer); lease_timer.start()
 	print("G0_SERVER_LISTENING")
 
 func _room_post(path: String, body: Dictionary) -> Array:
@@ -153,6 +156,10 @@ func _authenticate(id: int, data: PackedByteArray) -> void:
 	if not result.get("player_id") is String or result.get("room_id") != room_id or result.get("preset_id") != P.PRESET_ID or result.get("resolved_config_hash") != POLICY.config_hash() or identities.values().has(result.player_id):
 		_reject(id)
 		return
+	var lease := await _progress_post("acquire", {"player_id": result.player_id, "room_id": room_id})
+	if lease.is_empty() or int(lease.get("fencing_token", 0)) < 1:
+		_reject(id); return
+	leases[id] = lease
 	identities[id] = result.player_id
 	var players := get_node_or_null("Players")
 	if not players:
@@ -167,6 +174,50 @@ func _safe_name(value: String) -> String:
 	for c in value:
 		if c.to_lower() in "abcdefghijklmnopqrstuvwxyz0123456789_": result += c
 	return result
+
+func _progress_post(action: String, body: Dictionary) -> Dictionary:
+	var response := await _room_post("/v1/internal/progress/" + action, body)
+	if response.size() <= 3 or response[0] != HTTPRequest.RESULT_SUCCESS or response[1] != 200:
+		return {}
+	var p := JSON.new()
+	if p.parse(response[3].get_string_from_utf8()) != OK or not p.data is Dictionary:
+		return {}
+	return p.data
+
+func _renew_sessions() -> void:
+	for id in leases.keys():
+		var x: Dictionary = leases[id]; var out := await _progress_post("renew", {"player_id": x.player_id, "room_id": room_id, "fencing_token": x.fencing_token})
+		if out.is_empty():
+			leases[id]["uncertain"] = true
+		else: leases[id] = out
+
+func _try_pickup(id: int, entity_id: String, request_id: String) -> void:
+	if not identities.has(id) or not leases.has(id) or leases[id].get("uncertain", false):
+		return
+	if not pickup_entities.has(entity_id):
+		pickup_result.rpc_id(id, request_id, {"status": "rejected", "code": "unknown_entity"})
+		return
+	var entity: Dictionary = pickup_entities[entity_id]
+	if entity.state != "available":
+		pickup_result.rpc_id(id, request_id, {"status": "rejected", "code": "already_consumed"})
+		return
+	entity.state = "reserved"; entity.operation_id = identities[id] + ":" + request_id
+	pickup_entities[entity_id] = entity
+	var x: Dictionary = leases[id]
+	var out := await _progress_post("commit", {"player_id": identities[id], "room_id": room_id, "fencing_token": x.fencing_token, "expected_revision": 0, "operation_id": entity.operation_id, "payload": {"item": entity.item, "amount": 1}})
+	if out.is_empty():
+		return
+	if out.get("status") == "succeeded":
+		entity.state = "consumed"; pickup_entities[entity_id] = entity; pickup_result.rpc_id(id, request_id, out)
+	else:
+		entity.state = "available"; pickup_entities[entity_id] = entity; pickup_result.rpc_id(id, request_id, out)
+
+@rpc("any_peer", "call_remote", "reliable")
+func try_pickup(entity_id: String, request_id: String) -> void:
+	_try_pickup(multiplayer.get_remote_sender_id(), entity_id, request_id)
+
+@rpc("authority", "call_remote", "reliable")
+func pickup_result(_request_id: String, _result: Dictionary) -> void: pass
 
 @rpc("authority", "call_remote", "reliable")
 func player_joined(_player_id: String, _connection_id: int, _count: int) -> void: pass

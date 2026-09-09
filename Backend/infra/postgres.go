@@ -4,6 +4,8 @@ import (
 	"aigame/server/backend/domain"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -101,6 +103,81 @@ func (p *PG) RedeemTicket(c context.Context, x domain.Ticket) (domain.Ticket, er
 }
 func domainHash(s string) string           { b := sha256.Sum256([]byte(s)); return fmt.Sprintf("%x", b) }
 func (p *PG) Ping(c context.Context) error { return p.Pool.Ping(c) }
+func (p *PG) AcquireSession(c context.Context, player, room string) (domain.SessionLease, error) {
+	tx, e := p.Pool.Begin(c)
+	if e != nil {
+		return domain.SessionLease{}, e
+	}
+	defer tx.Rollback(c)
+	if _, e = tx.Exec(c, `insert into player_progress(player_id) values($1) on conflict(player_id) do nothing`, player); e != nil {
+		return domain.SessionLease{}, e
+	}
+	var x domain.SessionLease
+	e = tx.QueryRow(c, `insert into active_player_sessions(player_id,fencing_token,room_id,lease_expires_at) values($1,1,$2,now()+interval '30 seconds') on conflict(player_id) do update set fencing_token=active_player_sessions.fencing_token+1,room_id=excluded.room_id,lease_expires_at=excluded.lease_expires_at where active_player_sessions.lease_expires_at<=now() returning player_id,room_id,fencing_token,lease_expires_at`, player, room).Scan(&x.PlayerID, &x.RoomID, &x.FencingToken, &x.LeaseExpiresAt)
+	if e != nil {
+		return x, e
+	}
+	return x, tx.Commit(c)
+}
+func (p *PG) RenewSession(c context.Context, x domain.SessionLease) (domain.SessionLease, error) {
+	var out = x
+	e := p.Pool.QueryRow(c, `update active_player_sessions set lease_expires_at=now()+interval '30 seconds' where player_id=$1 and room_id=$2 and fencing_token=$3 and lease_expires_at>now() returning lease_expires_at`, x.PlayerID, x.RoomID, x.FencingToken).Scan(&out.LeaseExpiresAt)
+	return out, e
+}
+func (p *PG) ReleaseSession(c context.Context, x domain.SessionLease) error {
+	_, e := p.Pool.Exec(c, `delete from active_player_sessions where player_id=$1 and room_id=$2 and fencing_token=$3`, x.PlayerID, x.RoomID, x.FencingToken)
+	return e
+}
+func (p *PG) QueryProgress(c context.Context, q domain.ProgressQuery) (domain.OperationResult, error) {
+	var x domain.OperationResult
+	var raw []byte
+	e := p.Pool.QueryRow(c, `select operation_id,status,result,revision from progress_operations where player_id=$1 and operation_id=$2`, q.PlayerID, q.OperationID).Scan(&x.OperationID, &x.Status, &raw, &x.Revision)
+	x.Payload = raw
+	return x, e
+}
+func (p *PG) CommitProgress(c context.Context, in domain.ProgressCommit) (domain.OperationResult, error) {
+	h := domainHash(string(in.Payload))
+	var pickup struct {
+		Item   string `json:"item"`
+		Amount int    `json:"amount"`
+	}
+	if e := json.Unmarshal(in.Payload, &pickup); e != nil || pickup.Item == "" || len(pickup.Item) > 64 || pickup.Amount != 1 {
+		return domain.OperationResult{}, fmt.Errorf("invalid progress payload")
+	}
+	tx, e := p.Pool.Begin(c)
+	if e != nil {
+		return domain.OperationResult{}, e
+	}
+	defer tx.Rollback(c)
+	var old domain.OperationResult
+	var oldHash string
+	var raw []byte
+	e = tx.QueryRow(c, `select status,result,revision,payload_hash from progress_operations where player_id=$1 and operation_id=$2`, in.PlayerID, in.OperationID).Scan(&old.Status, &raw, &old.Revision, &oldHash)
+	if e == nil {
+		if oldHash != h {
+			return old, errors.New("operation payload conflict")
+		}
+		old.OperationID = in.OperationID
+		old.Payload = raw
+		return old, tx.Commit(c)
+	}
+	if e != pgx.ErrNoRows {
+		return old, e
+	}
+	var revision int64
+	e = tx.QueryRow(c, `update player_progress p set revision=p.revision+1, inventory=jsonb_set(p.inventory, array[$5], to_jsonb(coalesce((p.inventory->>$5)::int,0)+$6), true), updated_at=now() from active_player_sessions s where p.player_id=$1 and s.player_id=p.player_id and s.room_id=$2 and s.fencing_token=$3 and s.lease_expires_at>now() and p.revision=$4 returning p.revision`, in.PlayerID, in.RoomID, in.FencingToken, in.ExpectedRevision, pickup.Item, pickup.Amount).Scan(&revision)
+	if e != nil {
+		return old, e
+	}
+	_, e = tx.Exec(c, `insert into progress_operations(player_id,operation_id,payload_hash,status,result,revision) values($1,$2,$3,'succeeded',$4,$5)`, in.PlayerID, in.OperationID, h, in.Payload, revision)
+	if e != nil {
+		return old, e
+	}
+	if e = tx.Commit(c); e != nil {
+		return old, e
+	}
+	return domain.OperationResult{OperationID: in.OperationID, Status: domain.OperationSucceeded, Revision: revision, Payload: in.Payload}, nil
+}
 func (p *PG) RegisterRoom(c context.Context, x domain.RoomRecord) (domain.RoomRecord, error) {
 	e := p.Pool.QueryRow(c, `insert into rooms(room_id,host,port,protocol_version,gameplay_content_hash,resolved_config_hash,capacity,generation,status,used_players,last_heartbeat) values($1,$2,$3,$4,$5,$6,$7,$8,$9,0,now()) on conflict(room_id) do update set host=excluded.host,port=excluded.port,protocol_version=excluded.protocol_version,gameplay_content_hash=excluded.gameplay_content_hash,resolved_config_hash=excluded.resolved_config_hash,capacity=excluded.capacity,generation=excluded.generation,status=excluded.status,last_heartbeat=now() where rooms.generation<excluded.generation returning room_id,host,port,protocol_version,gameplay_content_hash,resolved_config_hash,status,generation,capacity,used_players,last_heartbeat`, x.ID, x.Host, x.Port, x.ProtocolVersion, x.GameplayContentHash, x.ResolvedConfigHash, x.Capacity, x.Generation, x.Status).Scan(&x.ID, &x.Host, &x.Port, &x.ProtocolVersion, &x.GameplayContentHash, &x.ResolvedConfigHash, &x.Status, &x.Generation, &x.Capacity, &x.UsedPlayers, &x.LastHeartbeat)
 	return x, e

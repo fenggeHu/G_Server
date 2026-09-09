@@ -26,6 +26,7 @@ type Store interface {
 	AllocateRoom(context.Context, string, string, int, string) (domain.RoomRecord, error)
 	ReleaseReservation(context.Context, string, string) error
 	Ping(context.Context) error
+	ProgressStore
 }
 type Service struct {
 	Store        Store
@@ -102,4 +103,29 @@ func (s *Service) Redeem(ctx context.Context, x domain.Ticket) (domain.Ticket, e
 		return domain.Ticket{}, ErrUnauthorized
 	}
 	return s.Store.RedeemTicket(ctx, x)
+}
+
+type ProgressStore interface {
+	AcquireSession(context.Context, string, string) (domain.SessionLease, error)
+	RenewSession(context.Context, domain.SessionLease) (domain.SessionLease, error)
+	ReleaseSession(context.Context, domain.SessionLease) error
+	CommitProgress(context.Context, domain.ProgressCommit) (domain.OperationResult, error)
+	QueryProgress(context.Context, domain.ProgressQuery) (domain.OperationResult, error)
+}
+
+func (s *Service) RenewSession(ctx context.Context, x domain.SessionLease) (domain.SessionLease, error) {
+	return s.Store.RenewSession(ctx, x)
+}
+func (s *Service) ReleaseSession(ctx context.Context, x domain.SessionLease) error {
+	return s.Store.ReleaseSession(ctx, x)
+}
+func (s *Service) QueryProgress(ctx context.Context, x domain.ProgressQuery) (domain.OperationResult, error) {
+	return s.Store.QueryProgress(ctx, x)
+}
+
+func (s *Service) AcquireSession(ctx context.Context, playerID, roomID string) (domain.SessionLease, error) {
+	return s.Store.AcquireSession(ctx, playerID, roomID)
+}
+func (s *Service) CommitProgress(ctx context.Context, c domain.ProgressCommit) (domain.OperationResult, error) {
+	return s.Store.CommitProgress(ctx, c)
 }

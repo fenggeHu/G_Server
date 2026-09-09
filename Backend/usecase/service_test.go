@@ -26,10 +26,27 @@ func (f *fakeStore) RedeemTicket(context.Context, domain.Ticket) (domain.Ticket,
 	return f.ticket, nil
 }
 func (f *fakeStore) Ping(context.Context) error { return nil }
-func (f *fakeStore) RegisterRoom(context.Context, domain.RoomRecord) (domain.RoomRecord, error) { return domain.RoomRecord{}, nil }
+func (f *fakeStore) RegisterRoom(context.Context, domain.RoomRecord) (domain.RoomRecord, error) {
+	return domain.RoomRecord{}, nil
+}
 func (f *fakeStore) HeartbeatRoom(context.Context, string, int, int, int, string) error { return nil }
-func (f *fakeStore) AllocateRoom(context.Context, string, string, int, string) (domain.RoomRecord, error) { return domain.RoomRecord{}, nil }
+func (f *fakeStore) AllocateRoom(context.Context, string, string, int, string) (domain.RoomRecord, error) {
+	return domain.RoomRecord{}, nil
+}
 func (f *fakeStore) ReleaseReservation(context.Context, string, string) error { return nil }
+func (f *fakeStore) AcquireSession(context.Context, string, string) (domain.SessionLease, error) {
+	return domain.SessionLease{}, nil
+}
+func (f *fakeStore) RenewSession(context.Context, domain.SessionLease) (domain.SessionLease, error) {
+	return domain.SessionLease{}, nil
+}
+func (f *fakeStore) ReleaseSession(context.Context, domain.SessionLease) error { return nil }
+func (f *fakeStore) CommitProgress(context.Context, domain.ProgressCommit) (domain.OperationResult, error) {
+	return domain.OperationResult{}, nil
+}
+func (f *fakeStore) QueryProgress(context.Context, domain.ProgressQuery) (domain.OperationResult, error) {
+	return domain.OperationResult{}, nil
+}
 func TestConfigHashStableAndTicketBindsPlayer(t *testing.T) {
 	f := &fakeStore{}
 	s := &Service{Store: f}

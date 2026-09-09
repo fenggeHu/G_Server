@@ -153,14 +153,48 @@ func run() error {
 	if host != "127.0.0.1" || actualPort != roomPort || protocol != 1 || content != "g0-empty-v1" || config != usecase.ConfigHash() || capacity != 8 || generation != 1 || status != "ready" {
 		return fmt.Errorf("registered fields mismatch")
 	}
-	// Cross the 15 second lease boundary while A remains connected, then late-join B.
-	a, ad, err := start("A", []string{"godot", "--headless", "--path", filepath.Join(root, "3D_App"), "--", "--smoke-exit"}, "G0_USERNAME=g1-a", "G1_CLIENT_ROLE=A")
+	// G1 keeps its late-join lease check; G3 starts both clients together to race one pickup.
+	a, ad, err := start("A", []string{"godot", "--headless", "--path", filepath.Join(root, "3D_App"), "--", "--smoke-exit"}, "G0_USERNAME=g1-a", "G1_CLIENT_ROLE=A", "G3_INTEGRATION="+os.Getenv("G3_INTEGRATION"), "G3_BARRIER_DIR="+os.Getenv("G3_BARRIER_DIR"))
 	if err != nil {
 		return err
 	}
 	defer a.Process.Kill()
 	if err = waitLog("A", "self=true"); err != nil {
 		return err
+	}
+	if os.Getenv("G3_INTEGRATION") == "1" {
+		b, _, err := start("B", []string{"godot", "--headless", "--path", filepath.Join(root, "3D_App"), "--", "--smoke-exit"}, "G0_USERNAME=g1-b", "G1_CLIENT_ROLE=B", "G3_INTEGRATION=1", "G3_BARRIER_DIR="+os.Getenv("G3_BARRIER_DIR"))
+		if err != nil {
+			return err
+		}
+		defer b.Process.Kill()
+		if err = waitLog("B", "self=true"); err != nil {
+			return err
+		}
+		deadline := time.Now().Add(20 * time.Second)
+		for !barrierExists(os.Getenv("G3_BARRIER_DIR")+"/A") || !barrierExists(os.Getenv("G3_BARRIER_DIR")+"/B") {
+			if time.Now().After(deadline) {
+				return fmt.Errorf("timeout waiting G3 pickup results")
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		var statuses []string
+		for _, role := range []string{"A", "B"} {
+			data, readErr := os.ReadFile(os.Getenv("G3_BARRIER_DIR") + "/" + role)
+			if readErr != nil {
+				return readErr
+			}
+			statuses = append(statuses, strings.TrimSpace(string(data)))
+		}
+		if (statuses[0] == statuses[1]) || (statuses[0] != "succeeded" && statuses[1] != "succeeded") {
+			return fmt.Errorf("invalid G3 statuses %v", statuses)
+		}
+		var amount int
+		if err = p.Pool.QueryRow(ctx, "select (inventory->>'coin')::int from player_progress where player_id=(select player_id from players where username='g1-a')").Scan(&amount); err != nil || amount != 1 {
+			return fmt.Errorf("G3 inventory amount=%d err=%v", amount, err)
+		}
+		fmt.Printf("G3_INTEGRATION_PASS statuses=%v inventory_coin=%d\n", statuses, amount)
+		return nil
 	}
 	select {
 	case <-ctx.Done():
@@ -207,4 +241,9 @@ func run() error {
 	}
 	fmt.Println("G1_INTEGRATION_PASS A=0 B=0 self/remote joins, late join, player_left, registration, two tickets")
 	return nil
+}
+
+func barrierExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

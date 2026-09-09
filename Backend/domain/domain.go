@@ -35,3 +35,40 @@ type RoomRecord struct {
 }
 
 type Reservation struct{ RoomID, PlayerID string }
+
+type PlayerProgress struct {
+	SchemaVersion int               `json:"schema_version"`
+	PlayerID      string            `json:"player_id"`
+	Revision      int64             `json:"revision"`
+	Inventory     map[string]int    `json:"inventory"`
+	Equipment     map[string]string `json:"equipment"`
+	Unlocks       []string          `json:"unlocks"`
+}
+type SessionLease struct {
+	PlayerID       string    `json:"player_id"`
+	RoomID         string    `json:"room_id"`
+	FencingToken   int64     `json:"fencing_token"`
+	LeaseExpiresAt time.Time `json:"lease_expires_at"`
+}
+type ProgressQuery struct {
+	PlayerID    string `json:"player_id"`
+	OperationID string `json:"operation_id"`
+}
+type ProgressCommit struct {
+	PlayerID         string `json:"player_id"`
+	RoomID           string `json:"room_id"`
+	FencingToken     int64  `json:"fencing_token"`
+	ExpectedRevision int64  `json:"expected_revision"`
+	OperationID      string `json:"operation_id"`
+	Payload          []byte `json:"payload"`
+}
+type OperationResult struct {
+	OperationID string `json:"operation_id"`
+	Status      string `json:"status"`
+	Code        string `json:"code,omitempty"`
+	Result      string `json:"result,omitempty"`
+	Revision    int64  `json:"revision"`
+	Payload     []byte `json:"payload,omitempty"`
+}
+
+const OperationSucceeded = "succeeded"

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -61,7 +62,11 @@ func run(args []string) error {
 	}
 	url := "postgres://g0:" + password + "@127.0.0.1:" + port + "/g0?sslmode=disable"
 	time.Sleep(500 * time.Millisecond)
-	env := append(os.Environ(), "DATABASE_URL="+url, "ROOM_SERVICE_TOKEN=runner-service-token-012345678901234567890123", "TEST_DB_SCHEMA="+schema, "TEST_DB_INTEGRATION=1")
+	wd, e := os.Getwd()
+	if e != nil {
+		return e
+	}
+	env := append(os.Environ(), "DATABASE_URL="+url, "ROOM_SERVICE_TOKEN=runner-service-token-012345678901234567890123", "TEST_DB_SCHEMA="+schema, "TEST_DB_INTEGRATION=1", "MIGRATIONS_DIR="+filepath.Join(wd, "migrations"))
 	// The child owns migration/test execution; all credentials are inherited, never printed.
 	if len(args) == 0 {
 		args = []string{"go", "test", "-race", "./..."}

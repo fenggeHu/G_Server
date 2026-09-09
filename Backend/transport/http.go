@@ -11,6 +11,7 @@ import (
 	"errors"
 	"github.com/jackc/pgx/v5"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"strconv"
@@ -71,6 +72,9 @@ func dbError(w http.ResponseWriter, e error) {
 func text(x string, max int) bool {
 	return utf8.ValidString(x) && utf8.RuneCountInString(x) > 0 && utf8.RuneCountInString(x) <= max
 }
+func integer(x float64) bool {
+	return !math.IsNaN(x) && !math.IsInf(x, 0) && x >= 0 && x <= math.MaxInt64 && math.Trunc(x) == x
+}
 
 type login struct {
 	Username string `json:"username"`
@@ -88,6 +92,19 @@ type redeemReq struct {
 	Content string `json:"gameplay_content_hash"`
 	Config  string `json:"resolved_config_hash"`
 }
+type leaseReq struct {
+	PlayerID     string  `json:"player_id"`
+	RoomID       string  `json:"room_id"`
+	FencingToken float64 `json:"fencing_token"`
+}
+type commitReq struct {
+	PlayerID         string          `json:"player_id"`
+	RoomID           string          `json:"room_id"`
+	FencingToken     float64         `json:"fencing_token"`
+	ExpectedRevision float64         `json:"expected_revision"`
+	OperationID      string          `json:"operation_id"`
+	Payload          json.RawMessage `json:"payload"`
+}
 
 func decode(b []byte, v any) bool {
 	d := json.NewDecoder(bytes.NewReader(b))
@@ -103,7 +120,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		failure(w, 400, "https required")
 		return
 	}
-	limits := map[string]int{"/v1/auth/login": 5, "/v1/auth/logout": 30, "/v1/tickets": 30, "/v1/rooms/allocate": 30, "/v1/internal/tickets/redeem": 60, "/v1/internal/rooms/register": 60, "/v1/internal/rooms/heartbeat": 120, "/v1/internal/rooms/release": 60}
+	limits := map[string]int{"/v1/auth/login": 5, "/v1/auth/logout": 30, "/v1/tickets": 30, "/v1/rooms/allocate": 30, "/v1/internal/tickets/redeem": 60, "/v1/internal/rooms/register": 60, "/v1/internal/rooms/heartbeat": 120, "/v1/internal/rooms/release": 60, "/v1/internal/progress/acquire": 60, "/v1/internal/progress/renew": 120, "/v1/internal/progress/release": 60, "/v1/internal/progress/commit": 120, "/v1/internal/progress/query": 120}
 	if n := limits[r.URL.Path]; n > 0 && !h.slot(r.URL.Path+"|"+ip, n) {
 		w.Header().Set("Retry-After", "60")
 		failure(w, 429, "rate limited")
@@ -194,6 +211,83 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		response(w, 200, map[string]string{"player_id": out.PlayerID, "room_id": out.RoomID, "preset_id": out.PresetID, "resolved_config_hash": out.ConfigHash})
 		return
+	}
+	if strings.HasPrefix(path, "/v1/internal/progress/") {
+		want := sha256.Sum256([]byte("Bearer " + h.Service.ServiceToken))
+		got := sha256.Sum256([]byte(r.Header.Get("Authorization")))
+		if subtle.ConstantTimeCompare(want[:], got[:]) != 1 {
+			failure(w, 401, "unauthorized")
+			return
+		}
+		if path == "/v1/internal/progress/acquire" {
+			var x leaseReq
+			if !decode(b, &x) || !text(x.PlayerID, 64) || !text(x.RoomID, 128) {
+				failure(w, 422, "invalid request")
+				return
+			}
+			out, e := h.Service.AcquireSession(ctx, x.PlayerID, x.RoomID)
+			if e != nil {
+				dbError(w, e)
+				return
+			}
+			response(w, 200, out)
+			return
+		}
+		if path == "/v1/internal/progress/renew" {
+			var x leaseReq
+			if !decode(b, &x) || !text(x.PlayerID, 64) || !text(x.RoomID, 128) || !integer(x.FencingToken) || x.FencingToken < 1 {
+				failure(w, 422, "invalid request")
+				return
+			}
+			out, e := h.Service.RenewSession(ctx, domain.SessionLease{PlayerID: x.PlayerID, RoomID: x.RoomID, FencingToken: int64(x.FencingToken)})
+			if e != nil {
+				dbError(w, e)
+				return
+			}
+			response(w, 200, out)
+			return
+		}
+		if path == "/v1/internal/progress/release" {
+			var x leaseReq
+			if !decode(b, &x) || !text(x.PlayerID, 64) || !text(x.RoomID, 128) || !integer(x.FencingToken) || x.FencingToken < 1 {
+				failure(w, 422, "invalid request")
+				return
+			}
+			if e := h.Service.ReleaseSession(ctx, domain.SessionLease{PlayerID: x.PlayerID, RoomID: x.RoomID, FencingToken: int64(x.FencingToken)}); e != nil {
+				dbError(w, e)
+				return
+			}
+			response(w, 200, map[string]string{"status": "ok"})
+			return
+		}
+		if path == "/v1/internal/progress/commit" {
+			var x commitReq
+			if !decode(b, &x) || !text(x.PlayerID, 64) || !text(x.RoomID, 128) || !text(x.OperationID, 128) || !integer(x.FencingToken) || !integer(x.ExpectedRevision) || x.FencingToken < 1 || len(x.Payload) == 0 || len(x.Payload) > 4096 {
+				failure(w, 422, "invalid request")
+				return
+			}
+			out, e := h.Service.CommitProgress(ctx, domain.ProgressCommit{PlayerID: x.PlayerID, RoomID: x.RoomID, FencingToken: int64(x.FencingToken), ExpectedRevision: int64(x.ExpectedRevision), OperationID: x.OperationID, Payload: x.Payload})
+			if e != nil {
+				dbError(w, e)
+				return
+			}
+			response(w, 200, out)
+			return
+		}
+		if path == "/v1/internal/progress/query" {
+			var x domain.ProgressQuery
+			if !decode(b, &x) || !text(x.PlayerID, 64) || !text(x.OperationID, 128) {
+				failure(w, 422, "invalid request")
+				return
+			}
+			out, e := h.Service.QueryProgress(ctx, x)
+			if e != nil {
+				dbError(w, e)
+				return
+			}
+			response(w, 200, out)
+			return
+		}
 	}
 	if strings.HasPrefix(path, "/v1/internal/rooms/") {
 		want := sha256.Sum256([]byte("Bearer " + h.Service.ServiceToken))

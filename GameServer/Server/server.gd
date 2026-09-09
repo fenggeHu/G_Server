@@ -2,6 +2,9 @@ extends Node
 
 const P = preload("res://Shared/protocol.gd")
 const POLICY = preload("res://Shared/network_policy.gd")
+const Movement = preload("res://Server/movement.gd")
+var entities: Dictionary = {}
+var server_tick := 0
 var peer := ENetMultiplayerPeer.new()
 var pending: Dictionary = {}
 var identities: Dictionary = {}
@@ -13,6 +16,7 @@ var auth_generation := 0
 var heartbeat: Timer
 
 func _ready() -> void:
+	Engine.physics_ticks_per_second = 60
 	_start.call_deferred()
 
 func _start() -> void:
@@ -95,6 +99,7 @@ func _remove_peer(id: int) -> void:
 	pending.erase(id)
 	var player_id: String = identities.get(id, "")
 	identities.erase(id)
+	entities.erase(id)
 	var players := get_node_or_null("Players")
 	if was_authenticated and players:
 		var node := players.get_node_or_null(_safe_name(player_id))
@@ -152,7 +157,8 @@ func _authenticate(id: int, data: PackedByteArray) -> void:
 	var players := get_node_or_null("Players")
 	if not players:
 		players = Node.new(); players.name = "Players"; add_child(players)
-	var player := Node3D.new(); player.name = _safe_name(result.player_id); player.set_meta("player_id", result.player_id); player.set_meta("connection_id", id); players.add_child(player)
+	var player := Movement.new(); player.name = _safe_name(result.player_id); player.set_meta("player_id", result.player_id); player.set_meta("connection_id", id); players.add_child(player)
+	entities[id] = player
 	multiplayer.send_auth(id, JSON.stringify({"status": "authenticated", "room_id": room_id, "resolved_config_hash": POLICY.config_hash(), "player_id": result.player_id}).to_utf8_buffer())
 	multiplayer.complete_auth(id)
 
@@ -171,3 +177,30 @@ func player_left(_player_id: String, _connection_id: int, _count: int) -> void: 
 func _fatal() -> void:
 	print("G0_SERVER_START_FAILED")
 	get_tree().quit(1)
+
+func _physics_process(_delta: float) -> void:
+	server_tick = (server_tick + 1) & 0xffffffff
+	if peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED: return
+	for id in entities:
+		if not multiplayer.get_peers().has(id): continue
+		var entity = entities[id]
+		entity.step(server_tick)
+		for recipient in multiplayer.get_peers():
+			if identities.has(recipient):
+				snapshot.rpc_id(recipient, identities[id], entity.position, entity.velocity, server_tick, entity.connection_epoch, entity.last_processed_input)
+
+@rpc("any_peer", "call_remote", "unreliable_ordered", 0)
+func move_input(sequence: int, direction: Vector2) -> void:
+	var id := multiplayer.get_remote_sender_id()
+	if not identities.has(id) or not entities.has(id):
+		print("G2_INPUT_REJECTED unauthorized")
+		return
+	var entity = entities[id]
+	if entity.enqueue(sequence, direction): return
+	if not direction.is_finite() or direction.length_squared() > 1.0:
+		print("G2_INPUT_REJECTED direction")
+	elif sequence - entity.last_processed_input > 120:
+		print("G2_INPUT_REJECTED future")
+
+@rpc("authority", "call_remote", "unreliable_ordered", 0)
+func snapshot(_player_id: String, _position: Vector3, _velocity: Vector3, _server_tick: int, _epoch: int, _last_seq: int) -> void: pass

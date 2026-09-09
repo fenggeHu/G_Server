@@ -18,3 +18,7 @@ go run ./cmd/testdb go test -race ./...
 ```
 
 Any child command inherits `DATABASE_URL`, `TEST_DB_SCHEMA`, `ROOM_SERVICE_TOKEN`, and `TEST_DB_INTEGRATION=1`; credentials are not printed. The API integration test creates and removes only its own schema. Coverage from the default unit-only run is intentionally reported honestly; use the runner with `go test -coverprofile=coverage.out ./...` to include real PostgreSQL API coverage.
+# G1 Local Integration
+
+Run `go run ./cmd/testdb go run ./cmd/g1integration` from this directory.
+The outer Go runner owns temporary Docker PostgreSQL; the inner runner builds and starts Backend, one Godot GameServer and two independent Godot clients. It verifies late join across the lease boundary, both clients' self/remote joins, successful exits, server leave events, registration fields and separate redeemed tickets. Run `go run ./cmd/testdb go test -race -v ./...` and `go vet ./...` for database and control-plane regressions.

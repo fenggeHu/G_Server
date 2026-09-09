@@ -85,16 +85,20 @@ func (s *Service) Allocate(ctx context.Context, playerID, sessionHash, preset, c
 	}
 	t := token(48)
 	x := domain.Ticket{Token: t, PlayerID: playerID, RoomID: r.ID, PresetID: preset, ConfigHash: ConfigHash(), Protocol: proto, Content: content}
-	return x, r, s.Store.IssueTicket(ctx, x, Hash(t), sessionHash)
+	err = s.Store.IssueTicket(ctx, x, Hash(t), sessionHash)
+	if err != nil {
+		_ = s.Store.ReleaseReservation(ctx, r.ID, playerID)
+	}
+	return x, r, err
 }
 func (s *Service) RegisterRoom(ctx context.Context, r domain.RoomRecord) (domain.RoomRecord, error) {
-	if r.Capacity < 1 || r.Capacity > 8 {
+	if r.Capacity < 1 || r.Capacity > 8 || r.ProtocolVersion != domain.Proto || r.GameplayContentHash != domain.Content || r.ResolvedConfigHash != ConfigHash() || r.Status != "ready" {
 		return r, errors.New("invalid capacity")
 	}
 	return s.Store.RegisterRoom(ctx, r)
 }
 func (s *Service) Redeem(ctx context.Context, x domain.Ticket) (domain.Ticket, error) {
-	if x.RoomID != domain.Room || x.Protocol != domain.Proto || x.Content != domain.Content || x.ConfigHash != ConfigHash() {
+	if x.RoomID == "" || x.Protocol != domain.Proto || x.Content != domain.Content || x.ConfigHash != ConfigHash() {
 		return domain.Ticket{}, ErrUnauthorized
 	}
 	return s.Store.RedeemTicket(ctx, x)

@@ -6,4 +6,6 @@ func _ready() -> void:
 		print("G0 GameServer requires --server")
 		get_tree().quit(2)
 		return
-	$NetworkRoot.add_child(load("res://Server/server.gd").new())
+	var session: Node = load("res://Server/server.gd").new()
+	session.name = "Session"
+	$NetworkRoot.add_child(session)

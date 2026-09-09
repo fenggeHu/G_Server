@@ -21,9 +21,17 @@ type Ticket struct {
 }
 
 type RoomRecord struct {
-	ID, Host, ProtocolVersion, GameplayContentHash, ResolvedConfigHash, Status string
-	Port, Generation, Capacity, UsedPlayers                                    int
-	LastHeartbeat                                                              time.Time
+	ID                  string    `json:"room_id"`
+	Host                string    `json:"host"`
+	ProtocolVersion     int       `json:"protocol_version"`
+	GameplayContentHash string    `json:"gameplay_content_hash"`
+	ResolvedConfigHash  string    `json:"resolved_config_hash"`
+	Status              string    `json:"status"`
+	Port                int       `json:"port"`
+	Generation          int       `json:"generation"`
+	Capacity            int       `json:"capacity"`
+	UsedPlayers         int       `json:"used_players"`
+	LastHeartbeat       time.Time `json:"last_heartbeat"`
 }
 
 type Reservation struct{ RoomID, PlayerID string }

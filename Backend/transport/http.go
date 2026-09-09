@@ -217,10 +217,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var x struct {
-			RoomID                            string `json:"room_id"`
-			Generation, Capacity, UsedPlayers int
-			Status                            string `json:"status"`
-			PlayerID                          string `json:"player_id"`
+			RoomID      string `json:"room_id"`
+			Generation  int    `json:"generation"`
+			Capacity    int    `json:"capacity"`
+			UsedPlayers int    `json:"used_players"`
+			Status      string `json:"status"`
+			PlayerID    string `json:"player_id"`
 		}
 		if !decode(b, &x) || !text(x.RoomID, 128) {
 			failure(w, 422, "invalid request")
@@ -228,6 +230,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		var e error
 		if path == "/v1/internal/rooms/heartbeat" {
+			if x.Generation < 1 || x.Capacity < 1 || x.Capacity > 8 || x.UsedPlayers < 0 || x.UsedPlayers > x.Capacity || (x.Status != "ready" && x.Status != "draining") {
+				failure(w, 422, "invalid heartbeat")
+				return
+			}
 			e = h.Service.Store.HeartbeatRoom(ctx, x.RoomID, x.Generation, x.Capacity, x.UsedPlayers, x.Status)
 		} else {
 			e = h.Service.Store.ReleaseReservation(ctx, x.RoomID, x.PlayerID)
@@ -269,6 +275,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if path == "/v1/rooms/allocate" {
 		out, r, e := h.Service.Allocate(ctx, s.PlayerID, s.TokenHash, x.Preset, x.Content, x.Proto)
 		if e != nil {
+			if errors.Is(e, pgx.ErrNoRows) {
+				failure(w, 409, "capacity unavailable")
+				return
+			}
 			dbError(w, e)
 			return
 		}

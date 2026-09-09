@@ -50,10 +50,14 @@ func _start() -> void:
 	api.peer_connected.connect(func(id):
 		pending.erase(id)
 		print("G0_SERVER_AUTHENTICATED")
+		for existing in identities:
+			if existing != id: player_joined.rpc_id(id, identities[existing], existing, identities.size())
+		player_joined.rpc(identities[id], id, identities.size())
+		print("G1 player_joined player_id=" + identities[id])
 	)
 	api.multiplayer_peer = peer
 	heartbeat = Timer.new()
-	heartbeat.wait_time = 30.0
+	heartbeat.wait_time = 5.0
 	heartbeat.timeout.connect(_heartbeat_room)
 	add_child(heartbeat)
 	heartbeat.start()
@@ -71,11 +75,11 @@ func _room_post(path: String, body: Dictionary) -> Array:
 	return result
 
 func _register_room(port: int) -> bool:
-	var response := await _room_post("/v1/internal/rooms/register", {"ID": room_id, "Host": OS.get_environment("ROOM_HOST") if not OS.get_environment("ROOM_HOST").is_empty() else "127.0.0.1", "Port": port, "ProtocolVersion": 1, "GameplayContentHash": P.CONTENT_HASH, "ResolvedConfigHash": POLICY.config_hash(), "Capacity": 8, "Generation": generation, "Status": "ready"})
+	var response := await _room_post("/v1/internal/rooms/register", {"room_id": room_id, "host": OS.get_environment("ROOM_HOST") if not OS.get_environment("ROOM_HOST").is_empty() else "127.0.0.1", "port": port, "protocol_version": P.PROTOCOL_VERSION, "gameplay_content_hash": P.CONTENT_HASH, "resolved_config_hash": POLICY.config_hash(), "capacity": 8, "generation": generation, "status": "ready"})
 	return response.size() > 1 and response[0] == HTTPRequest.RESULT_SUCCESS and response[1] == 200
 
 func _heartbeat_room() -> void:
-	var response := await _room_post("/v1/internal/rooms/heartbeat", {"RoomID": room_id, "Generation": generation, "Capacity": 8, "UsedPlayers": identities.size(), "Status": "ready"})
+	var response := await _room_post("/v1/internal/rooms/heartbeat", {"room_id": room_id, "generation": generation, "capacity": 8, "used_players": identities.size(), "status": "ready"})
 	if response.size() <= 1 or response[0] != HTTPRequest.RESULT_SUCCESS or response[1] != 200:
 		print("G1_ROOM_HEARTBEAT_FAILED")
 
@@ -96,6 +100,8 @@ func _remove_peer(id: int) -> void:
 		var node := players.get_node_or_null(_safe_name(player_id))
 		if node: node.queue_free()
 		player_left.rpc(player_id, id, identities.size())
+		print("G1 player_left player_id=" + player_id)
+		await _room_post("/v1/internal/rooms/release", {"room_id": room_id, "player_id": player_id})
 
 func _reject(id: int) -> void:
 	_remove_peer(id)
@@ -149,9 +155,6 @@ func _authenticate(id: int, data: PackedByteArray) -> void:
 	var player := Node3D.new(); player.name = _safe_name(result.player_id); player.set_meta("player_id", result.player_id); player.set_meta("connection_id", id); players.add_child(player)
 	multiplayer.send_auth(id, JSON.stringify({"status": "authenticated", "room_id": room_id, "resolved_config_hash": POLICY.config_hash(), "player_id": result.player_id}).to_utf8_buffer())
 	multiplayer.complete_auth(id)
-	for existing in identities:
-		if existing != id: player_joined.rpc_id(id, identities[existing], existing, identities.size())
-	player_joined.rpc(result.player_id, id, identities.size())
 
 func _safe_name(value: String) -> String:
 	var result := "player_"

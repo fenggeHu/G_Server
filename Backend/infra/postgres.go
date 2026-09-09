@@ -106,7 +106,10 @@ func (p *PG) RegisterRoom(c context.Context, x domain.RoomRecord) (domain.RoomRe
 	return x, e
 }
 func (p *PG) HeartbeatRoom(c context.Context, id string, g, cap, used int, status string) error {
-	r, e := p.Pool.Exec(c, `update rooms set capacity=$3,used_players=$4,status=$5,last_heartbeat=now() where room_id=$1 and generation=$2 and capacity between 1 and 8`, id, g, cap, used, status)
+	if cap < 1 || cap > 8 || used < 0 || used > cap || (status != "ready" && status != "draining") {
+		return fmt.Errorf("invalid heartbeat")
+	}
+	r, e := p.Pool.Exec(c, `update rooms set status=$4,last_heartbeat=now() where room_id=$1 and generation=$2 and capacity=$3 and last_heartbeat>now()-interval '15 seconds'`, id, g, cap, status)
 	if e != nil {
 		return e
 	}
@@ -126,7 +129,8 @@ func (p *PG) AllocateRoom(c context.Context, player, content string, proto int, 
 	if e != nil {
 		return r, e
 	}
-	if _, e = tx.Exec(c, `insert into room_reservations(room_id,player_id) values($1,$2)`, r.ID, player); e != nil {
+	var reserved string
+	if e = tx.QueryRow(c, `insert into room_reservations(room_id,player_id) values($1,$2) on conflict(room_id,player_id) do update set released_at=null,created_at=now() where room_reservations.released_at is not null returning player_id`, r.ID, player).Scan(&reserved); e != nil {
 		return r, e
 	}
 	_, e = tx.Exec(c, `update rooms set used_players=used_players+1 where room_id=$1`, r.ID)

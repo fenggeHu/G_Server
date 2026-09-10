@@ -206,8 +206,18 @@ func (p *PG) AllocateRoom(c context.Context, player, content string, proto int, 
 	if e != nil {
 		return r, e
 	}
+	var releasedRoom string
+	e = tx.QueryRow(c, `update room_reservation set released_at=now(),status=0 where player_id=$1 and released_at is null returning room_id`, player).Scan(&releasedRoom)
+	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+		return r, e
+	}
+	if e == nil {
+		if _, e = tx.Exec(c, `update room set used_players=greatest(used_players-1,0) where room_id=$1`, releasedRoom); e != nil {
+			return r, e
+		}
+	}
 	var reserved string
-	if e = tx.QueryRow(c, `insert into room_reservation(room_id,player_id) values($1,$2) on conflict(room_id,player_id) do update set released_at=null,created_at=now() where room_reservation.released_at is not null returning player_id`, r.ID, player).Scan(&reserved); e != nil {
+	if e = tx.QueryRow(c, `insert into room_reservation(room_id,player_id) values($1,$2) on conflict(room_id,player_id) do update set released_at=null,created_at=now(),status=1 returning player_id`, r.ID, player).Scan(&reserved); e != nil {
 		return r, e
 	}
 	_, e = tx.Exec(c, `update room set used_players=used_players+1 where room_id=$1`, r.ID)

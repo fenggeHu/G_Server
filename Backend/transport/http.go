@@ -215,15 +215,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		var x redeemReq
 		if !decode(b, &x) || !text(x.Ticket, 256) || !text(x.Room, 128) || !text(x.Preset, 32) || !text(x.Content, 128) || !text(x.Config, 128) || x.Proto < 1 || x.Proto > 100 {
+			fmt.Printf("REDEEM_INVALID ticket=%d room=%d preset=%d content=%d config=%d proto=%d\n", len(x.Ticket), len(x.Room), len(x.Preset), len(x.Content), len(x.Config), x.Proto)
 			failure(w, 422, "invalid request")
 			return
 		}
 		out, e := h.Service.Redeem(ctx, domain.Ticket{Token: x.Ticket, RoomID: x.Room, PresetID: x.Preset, Protocol: x.Proto, Content: x.Content, ConfigHash: x.Config})
 		if e != nil {
+			fmt.Printf("REDEEM_ERR token=%s room=%s preset=%s err=%v\n", x.Ticket, x.Room, x.Preset, e)
 			dbError(w, e)
 			return
 		}
 		response(w, 200, map[string]string{"player_id": out.PlayerID, "room_id": out.RoomID, "preset_id": out.PresetID, "resolved_config_hash": out.ConfigHash})
+		fmt.Printf("REDEEM_OK player=%s room=%s preset=%s\n", out.PlayerID, out.RoomID, out.PresetID)
 		return
 	}
 	if strings.HasPrefix(path, "/v1/internal/progress/") {
@@ -239,9 +242,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			out, e := h.Service.AcquireSession(ctx, x.PlayerID, x.RoomID)
 			if e != nil {
+				fmt.Printf("ACQUIRE_ERR player=%s room=%s err=%v\n", x.PlayerID, x.RoomID, e)
 				dbError(w, e)
 				return
 			}
+			fmt.Printf("ACQUIRE_OK player=%s room=%s token=%d\n", x.PlayerID, x.RoomID, out.FencingToken)
 			response(w, 200, out)
 			return
 		}
@@ -376,12 +381,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !usecase.ValidPreset(x.Preset, x.Content, x.Proto) {
+		fmt.Printf("ALLOCATE_ERR validPreset player=%s preset=%s content=%s proto=%d\n", s.PlayerID, x.Preset, x.Content, x.Proto)
 		failure(w, 409, "version mismatch")
 		return
 	}
 	if path == "/v1/rooms/allocate" {
 		out, r, e := h.Service.Allocate(ctx, s.PlayerID, s.TokenHash, x.Preset, x.Content, x.Proto)
 		if e != nil {
+			fmt.Printf("ALLOCATE_ERR player=%s preset=%s content=%s proto=%d err=%v\n", s.PlayerID, x.Preset, x.Content, x.Proto, e)
 			if errors.Is(e, pgx.ErrNoRows) {
 				failure(w, 409, "capacity unavailable")
 				return

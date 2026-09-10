@@ -11,8 +11,10 @@ docker compose -f compose.yaml up --build
 服务地址：
 
 - Backend API：`http://127.0.0.1:18080`
-- GameServer ENet：`127.0.0.1:17000/udp`
+- GameServer ENet：`127.0.0.1:17000/udp`（宿主机和容器监听端口一致）
 - PostgreSQL：`127.0.0.1:55432`
+
+`ROOM_PRESET` defaults to `exploration`; set it to `coop_combat` in `.env` before starting a combat test. The client must use the same preset.
 
 这是开发配置，只绑定宿主机 loopback，使用明文 HTTP 和 ENet，不得用于公网。GameServer 通过 Docker 内部网络访问 Backend，`G0_PROTECTED_NETWORK=1` 表示开发者已为该内部网络配置受保护边界；它不是加密实现。Compose 中的 GameServer 使用 `ROOM_HOST=127.0.0.1`，主要用于容器启动和 Backend 联调；宿主机客户端或手机真机联调需设置可达的受保护网络地址并另行配置安全传输。
 

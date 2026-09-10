@@ -33,7 +33,7 @@ func TestG0Integration(t *testing.T) {
 	pw := "integration-password"
 	hash, _ := argon2id.CreateHash(pw, argon2id.DefaultParams)
 	id := uuid.New()
-	if _, e = p.Pool.Exec(ctx, "insert into players(player_id,username,password_hash) values($1,$2,$3)", id, "integration", hash); e != nil {
+	if _, e = p.Pool.Exec(ctx, "insert into player(player_id,username,password_hash) values($1,$2,$3)", id, "integration", hash); e != nil {
 		t.Fatal(e)
 	}
 	svc := &usecase.Service{Store: p, ServiceToken: os.Getenv("ROOM_SERVICE_TOKEN"), Host: "127.0.0.1", Port: 7000}
@@ -104,7 +104,7 @@ func TestG0Integration(t *testing.T) {
 	if logout.StatusCode != 200 {
 		t.Fatalf("logout %d", logout.StatusCode)
 	}
-	expired, _ := p.Pool.Exec(ctx, "update sessions set expires_at=now()-interval '1 second'")
+	expired, _ := p.Pool.Exec(ctx, "update session set expires_at=now()-interval '1 second'")
 	_ = expired
 	bad := post("/v1/auth/login", map[string]any{"username": "integration", "password": pw, "extra": "secret"}, "")
 	if bad.StatusCode != 422 {

@@ -28,7 +28,7 @@ func openG3Store(t *testing.T) (*infra.PG, *Service, string) {
 		t.Fatal(err)
 	}
 	player := uuid.NewString()
-	if _, err = p.Pool.Exec(ctx, "insert into players(player_id,username,password_hash) values($1,$2,$3)", player, "g3-"+player, "unused"); err != nil {
+	if _, err = p.Pool.Exec(ctx, "insert into player(player_id,username,password_hash) values($1,$2,$3)", player, "g3-"+player, "unused"); err != nil {
 		p.Pool.Close()
 		t.Fatal(err)
 	}

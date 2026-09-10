@@ -50,11 +50,11 @@ func TestG1Rooms(t *testing.T) {
 		}
 	})
 	// SQL setup deliberately isolates reservation and lease behavior from wire decoding.
-	_, err = p.Pool.Exec(ctx, `delete from rooms`)
+	_, err = p.Pool.Exec(ctx, `delete from room`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = p.Pool.Exec(ctx, `insert into rooms values('g1-room','127.0.0.1',7000,1,$1,$2,8,2,'ready',0,now())`, domain.Content, usecase.ConfigHash())
+	_, err = p.Pool.Exec(ctx, `insert into room(room_id,host,port,protocol_version,gameplay_content_hash,resolved_config_hash,capacity,generation,status,used_players,last_heartbeat) values('g1-room','127.0.0.1',7000,1,$1,$2,8,2,'ready',0,now())`, domain.Content, usecase.ConfigHash())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestG1Rooms(t *testing.T) {
 	for i := 0; i < 9; i++ {
 		id := uuid.NewString()
 		players = append(players, id)
-		if _, err = p.Pool.Exec(ctx, "insert into players values($1,$2,'unused')", id, fmt.Sprintf("g1-%s", id)); err != nil {
+		if _, err = p.Pool.Exec(ctx, "insert into player(player_id,username,password_hash) values($1,$2,'unused')", id, fmt.Sprintf("g1-%s", id)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -81,11 +81,11 @@ func TestG1Rooms(t *testing.T) {
 	})
 	t.Run("wrong generation unchanged", func(t *testing.T) {
 		var before, after time.Time
-		p.Pool.QueryRow(ctx, "select last_heartbeat from rooms where room_id='g1-room'").Scan(&before)
+		p.Pool.QueryRow(ctx, "select last_heartbeat from room where room_id='g1-room'").Scan(&before)
 		if err := p.HeartbeatRoom(ctx, "g1-room", 1, 8, 0, "ready"); err == nil {
 			t.Error("old generation accepted")
 		}
-		p.Pool.QueryRow(ctx, "select last_heartbeat from rooms where room_id='g1-room'").Scan(&after)
+		p.Pool.QueryRow(ctx, "select last_heartbeat from room where room_id='g1-room'").Scan(&after)
 		if !before.Equal(after) {
 			t.Error("lease changed")
 		}
@@ -126,7 +126,7 @@ func TestG1Rooms(t *testing.T) {
 		}
 	})
 	t.Run("expired lease cannot revive", func(t *testing.T) {
-		p.Pool.Exec(ctx, "update rooms set last_heartbeat=now()-interval '20 seconds',used_players=0")
+		p.Pool.Exec(ctx, "update room set last_heartbeat=now()-interval '20 seconds',used_players=0")
 		if err := p.HeartbeatRoom(ctx, "g1-room", 2, 8, 0, "ready"); err == nil {
 			t.Error("expired heartbeat revived room")
 		}

@@ -66,7 +66,7 @@ func run() error {
 		b[6] = (b[6] & 15) | 64
 		b[8] = (b[8] & 63) | 128
 		id := fmt.Sprintf("%x-%x-%x-%x-%x", b[:4], b[4:6], b[6:8], b[8:10], b[10:])
-		_, e = p.Pool.Exec(ctx, "insert into players(player_id,username,password_hash) values($1,$2,$3) on conflict(username) do update set password_hash=excluded.password_hash", id, os.Args[2], h)
+		_, e = p.Pool.Exec(ctx, "insert into player(player_id,username,password_hash) values($1,$2,$3) on conflict(username) do update set password_hash=excluded.password_hash", id, os.Args[2], h)
 		if e != nil {
 			return errors.New("seed failed")
 		}

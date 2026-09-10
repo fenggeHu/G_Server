@@ -88,6 +88,7 @@ type ticketReq struct {
 type redeemReq struct {
 	Ticket  string `json:"ticket"`
 	Room    string `json:"room_id"`
+	Preset  string `json:"preset_id"`
 	Proto   int    `json:"protocol_version"`
 	Content string `json:"gameplay_content_hash"`
 	Config  string `json:"resolved_config_hash"`
@@ -200,11 +201,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var x redeemReq
-		if !decode(b, &x) || !text(x.Ticket, 256) || !text(x.Room, 128) || !text(x.Content, 128) || !text(x.Config, 128) || x.Proto < 1 || x.Proto > 100 {
+		if !decode(b, &x) || !text(x.Ticket, 256) || !text(x.Room, 128) || !text(x.Preset, 32) || !text(x.Content, 128) || !text(x.Config, 128) || x.Proto < 1 || x.Proto > 100 {
 			failure(w, 422, "invalid request")
 			return
 		}
-		out, e := h.Service.Redeem(ctx, domain.Ticket{Token: x.Ticket, RoomID: x.Room, Protocol: x.Proto, Content: x.Content, ConfigHash: x.Config})
+		out, e := h.Service.Redeem(ctx, domain.Ticket{Token: x.Ticket, RoomID: x.Room, PresetID: x.Preset, Protocol: x.Proto, Content: x.Content, ConfigHash: x.Config})
 		if e != nil {
 			dbError(w, e)
 			return
@@ -362,7 +363,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		failure(w, 422, "invalid request")
 		return
 	}
-	if x.Preset != domain.Preset || x.Content != domain.Content || x.Proto != domain.Proto {
+	if !usecase.ValidPreset(x.Preset, x.Content, x.Proto) {
 		failure(w, 409, "version mismatch")
 		return
 	}

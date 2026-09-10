@@ -7,6 +7,7 @@ Build/
 Artifacts/
 *.pem
 *.key
-.env
-.env.*
+.env.local
+.env.*.local
 !.env.example
+!.env

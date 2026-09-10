@@ -7,4 +7,7 @@ static func backend_allowed(url: String) -> bool:
 static func room_allowed(host: String) -> bool:
 	return host == "127.0.0.1" if OS.get_environment("G0_LOOPBACK_TEST") == "1" else OS.get_environment("G0_PROTECTED_NETWORK") == "1" and not host.is_empty()
 static func config_hash() -> String:
-	return '{"gameplay_content_hash":"g0-empty-v1","max_players":8,"preset_id":"exploration","protocol_version":1}'.sha256_text()
+	var preset := OS.get_environment("ROOM_PRESET")
+	if preset.is_empty(): preset = "exploration"
+	var content := "g4-coop-combat-v1" if preset == "coop_combat" else "g0-empty-v1"
+	return ('{"gameplay_content_hash":"' + content + '","max_players":8,"preset_id":"' + preset + '","protocol_version":1}').sha256_text()

@@ -58,3 +58,15 @@ func TestConfigHashStableAndTicketBindsPlayer(t *testing.T) {
 		t.Fatalf("bad ticket: %+v %v", x, e)
 	}
 }
+
+func TestCoopCombatPresetIsSupportedAndBoundToTicket(t *testing.T) {
+	f := &fakeStore{}
+	s := &Service{Store: f}
+	x, err := s.Ticket(context.Background(), "player", "session-hash", "coop_combat", "g4-coop-combat-v1", domain.Proto)
+	if err != nil {
+		t.Fatalf("coop_combat rejected: %v", err)
+	}
+	if x.PresetID != "coop_combat" || x.Content != "g4-coop-combat-v1" || x.ConfigHash == "" {
+		t.Fatalf("ticket is not bound to combat preset: %+v", x)
+	}
+}

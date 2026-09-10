@@ -16,12 +16,23 @@ var auth_generation := 0
 var leases: Dictionary = {}
 var pickup_entities := {"pickup-1": {"position": Vector3.ZERO, "state": "available", "item": "coin"}}
 var heartbeat: Timer
+var combat_enabled := false
+var enemy := {"hp": 30, "revision": 1, "dead": false, "respawn_at": 0}
+var attack_seen: Dictionary = {}
+var attack_last: Dictionary = {}
+var enemy_node: Node3D
+var preset_id := "exploration"
+var content_hash := P.CONTENT_HASH
 
 func _ready() -> void:
 	Engine.physics_ticks_per_second = 60
 	_start.call_deferred()
 
 func _start() -> void:
+	preset_id = OS.get_environment("ROOM_PRESET")
+	if preset_id.is_empty(): preset_id = P.DEFAULT_PRESET
+	combat_enabled = preset_id == "coop_combat"
+	content_hash = P.content_hash_for(preset_id)
 	base = OS.get_environment("G0_BACKEND_URL").trim_suffix("/")
 	service_token = OS.get_environment("ROOM_SERVICE_TOKEN")
 	if not POLICY.backend_allowed(base) or service_token.length() < 32:
@@ -41,6 +52,8 @@ func _start() -> void:
 	if not await _register_room(port):
 		_fatal()
 		return
+	if combat_enabled:
+		enemy_node = Node3D.new(); enemy_node.name = "enemy_1"; enemy_node.position = Vector3(0, 0, 2); add_child(enemy_node)
 	if loopback:
 		peer.set_bind_ip("127.0.0.1")
 	if peer.create_server(port, 16) != OK:
@@ -59,6 +72,7 @@ func _start() -> void:
 		for existing in identities:
 			if existing != id: player_joined.rpc_id(id, identities[existing], existing, identities.size())
 		player_joined.rpc(identities[id], id, identities.size())
+		if combat_enabled: health_changed.rpc_id(id, "enemy_1", enemy.hp, enemy.revision)
 		print("G1 player_joined player_id=" + identities[id])
 	)
 	api.multiplayer_peer = peer
@@ -82,7 +96,7 @@ func _room_post(path: String, body: Dictionary) -> Array:
 	return result
 
 func _register_room(port: int) -> bool:
-	var response := await _room_post("/v1/internal/rooms/register", {"room_id": room_id, "host": OS.get_environment("ROOM_HOST") if not OS.get_environment("ROOM_HOST").is_empty() else "127.0.0.1", "port": port, "protocol_version": P.PROTOCOL_VERSION, "gameplay_content_hash": P.CONTENT_HASH, "resolved_config_hash": POLICY.config_hash(), "capacity": 8, "generation": generation, "status": "ready"})
+	var response := await _room_post("/v1/internal/rooms/register", {"room_id": room_id, "host": OS.get_environment("ROOM_HOST") if not OS.get_environment("ROOM_HOST").is_empty() else "127.0.0.1", "port": port, "protocol_version": P.PROTOCOL_VERSION, "gameplay_content_hash": content_hash, "resolved_config_hash": POLICY.config_hash(), "capacity": 8, "generation": generation, "status": "ready"})
 	return response.size() > 1 and response[0] == HTTPRequest.RESULT_SUCCESS and response[1] == 200
 
 func _heartbeat_room() -> void:
@@ -126,7 +140,7 @@ func _authenticate(id: int, data: PackedByteArray) -> void:
 		_reject(id)
 		return
 	var body: Dictionary = parser.data
-	if body.size() != 5 or not body.get("ticket") is String or body.ticket.is_empty() or body.ticket.length() > 256 or body.get("room_id") != room_id or body.get("protocol_version") != P.PROTOCOL_VERSION or body.get("gameplay_content_hash") != P.CONTENT_HASH or body.get("resolved_config_hash") != POLICY.config_hash():
+	if body.size() != 6 or not body.get("ticket") is String or body.ticket.is_empty() or body.ticket.length() > 256 or body.get("room_id") != room_id or body.get("protocol_version") != P.PROTOCOL_VERSION or body.get("gameplay_content_hash") != content_hash or body.get("resolved_config_hash") != POLICY.config_hash():
 		_reject(id)
 		return
 	var request_generation: int = pending[id].generation
@@ -153,7 +167,7 @@ func _authenticate(id: int, data: PackedByteArray) -> void:
 		_reject(id)
 		return
 	var result: Dictionary = parser.data
-	if not result.get("player_id") is String or result.get("room_id") != room_id or result.get("preset_id") != P.PRESET_ID or result.get("resolved_config_hash") != POLICY.config_hash() or identities.values().has(result.player_id):
+	if not result.get("player_id") is String or result.get("room_id") != room_id or result.get("preset_id") != preset_id or result.get("resolved_config_hash") != POLICY.config_hash() or identities.values().has(result.player_id):
 		_reject(id)
 		return
 	var lease := await _progress_post("acquire", {"player_id": result.player_id, "room_id": room_id})
@@ -230,6 +244,8 @@ func _fatal() -> void:
 	get_tree().quit(1)
 
 func _physics_process(_delta: float) -> void:
+	if combat_enabled and enemy.dead and Time.get_ticks_msec() >= enemy.respawn_at:
+		enemy = {"hp": 30, "revision": enemy.revision + 1, "dead": false, "respawn_at": 0}; entity_spawned.rpc("enemy_1", enemy.revision)
 	server_tick = (server_tick + 1) & 0xffffffff
 	if peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED: return
 	for id in entities:
@@ -255,3 +271,18 @@ func move_input(sequence: int, direction: Vector2) -> void:
 
 @rpc("authority", "call_remote", "unreliable_ordered", 0)
 func snapshot(_player_id: String, _position: Vector3, _velocity: Vector3, _server_tick: int, _epoch: int, _last_seq: int) -> void: pass
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_attack(target_id: String, attack_id: String) -> void:
+	var id := multiplayer.get_remote_sender_id(); var now := Time.get_ticks_msec()
+	if not combat_enabled or not identities.has(id) or not entities.has(id) or not enemy_node or target_id != "enemy_1" or attack_id.length() == 0 or attack_id.length() > 128: return
+	if attack_seen.has(identities[id]) and attack_seen[identities[id]].has(attack_id): return
+	if now - int(attack_last.get(id, -1000000)) < P.ATTACK_COOLDOWN_MS: return
+	if entities[id].global_position.distance_to(enemy_node.global_position) > 3.0: return
+	attack_seen[identities[id]] = attack_seen.get(identities[id], {}); attack_seen[identities[id]][attack_id] = true; attack_last[id] = now
+	if enemy.dead: return
+	enemy.hp -= 10; enemy.revision += 1; health_changed.rpc("enemy_1", enemy.hp, enemy.revision)
+	if enemy.hp == 0: enemy.dead = true; enemy.respawn_at = now + 5000; entity_died.rpc("enemy_1", enemy.revision)
+@rpc("authority", "call_remote", "reliable") func health_changed(_entity_id: String, _hp: int, _revision: int) -> void: pass
+@rpc("authority", "call_remote", "reliable") func entity_died(_entity_id: String, _revision: int) -> void: pass
+@rpc("authority", "call_remote", "reliable") func entity_spawned(_entity_id: String, _revision: int) -> void: pass

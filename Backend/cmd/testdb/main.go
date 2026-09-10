@@ -69,7 +69,7 @@ func run(args []string) error {
 	env := append(os.Environ(), "DATABASE_URL="+url, "ROOM_SERVICE_TOKEN=runner-service-token-012345678901234567890123", "TEST_DB_SCHEMA="+schema, "TEST_DB_INTEGRATION=1", "MIGRATIONS_DIR="+filepath.Join(wd, "migrations"))
 	// The child owns migration/test execution; all credentials are inherited, never printed.
 	if len(args) == 0 {
-		args = []string{"go", "test", "-race", "./..."}
+		args = []string{"go", "test", "-race", "-tags", "integration", "./..."}
 	}
 	child := exec.CommandContext(ctx, args[0], args[1:]...)
 	child.Env = env

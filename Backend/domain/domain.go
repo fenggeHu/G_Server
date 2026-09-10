@@ -5,6 +5,8 @@ import "time"
 const (
 	Preset  = "exploration"
 	Content = "g0-empty-v1"
+	CombatPreset = "coop_combat"
+	CombatContent = "g4-coop-combat-v1"
 	Room    = "g0-room"
 	Proto   = 1
 )

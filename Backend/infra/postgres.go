@@ -91,7 +91,7 @@ func (p *PG) RedeemTicket(c context.Context, x domain.Ticket) (domain.Ticket, er
 	if e = tx.QueryRow(c, "select s.token_hash from sessions s join tickets t on t.session_hash=s.token_hash where t.token_hash=$1 for update of s", domainHash(x.Token)).Scan(&session); e != nil {
 		return x, e
 	}
-	e = tx.QueryRow(c, "update tickets set redeemed_at=now() where token_hash=$1 and redeemed_at is null and expires_at>now() and room_id=$2 and protocol_version=$3 and gameplay_content_hash=$4 and resolved_config_hash=$5 and preset_id='exploration' and exists(select 1 from sessions s where s.token_hash=tickets.session_hash and s.player_id=tickets.player_id and s.revoked_at is null and s.expires_at>now()) returning player_id,room_id,preset_id,resolved_config_hash", domainHash(x.Token), x.RoomID, x.Protocol, x.Content, x.ConfigHash).Scan(&out.PlayerID, &out.RoomID, &out.PresetID, &out.ConfigHash)
+	e = tx.QueryRow(c, "update tickets set redeemed_at=now() where token_hash=$1 and redeemed_at is null and expires_at>now() and room_id=$2 and protocol_version=$3 and gameplay_content_hash=$4 and resolved_config_hash=$5 and preset_id=$6 and exists(select 1 from sessions s where s.token_hash=tickets.session_hash and s.player_id=tickets.player_id and s.revoked_at is null and s.expires_at>now()) returning player_id,room_id,preset_id,resolved_config_hash", domainHash(x.Token), x.RoomID, x.Protocol, x.Content, x.ConfigHash, x.PresetID).Scan(&out.PlayerID, &out.RoomID, &out.PresetID, &out.ConfigHash)
 	if e != nil {
 		return x, e
 	}

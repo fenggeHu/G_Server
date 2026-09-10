@@ -23,3 +23,5 @@ docker compose -f compose.yaml down -v
 ```
 
 GameServer 镜像默认从 Godot 官方 GitHub release 下载精确版本；可在构建时传入 `GODOT_SHA256` 做完整性校验。若镜像源或架构不匹配，先在 CI 固定并缓存该基础工具链。
+
+Dockerfile 根据 BuildKit 的 `TARGETARCH` 自动选择 Godot 官方 Linux `arm64` 或 `x86_64` 包。Apple Silicon 本机使用原生 `linux/arm64`，不会运行 AMD64 仿真；Intel/AMD 主机使用 `linux/amd64`。Backend 同样由 Go 基础镜像自动选择本机架构。Backend 启动时会自动执行 migration 和开发账号 seed。

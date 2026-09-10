@@ -97,6 +97,8 @@ func _room_post(path: String, body: Dictionary) -> Array:
 
 func _register_room(port: int) -> bool:
 	var response := await _room_post("/v1/internal/rooms/register", {"room_id": room_id, "host": OS.get_environment("ROOM_HOST") if not OS.get_environment("ROOM_HOST").is_empty() else "127.0.0.1", "port": port, "protocol_version": P.PROTOCOL_VERSION, "gameplay_content_hash": content_hash, "resolved_config_hash": POLICY.config_hash(), "capacity": 8, "generation": generation, "status": "ready"})
+	if response.size() > 1 and response[1] != 200:
+		print("G0_ROOM_REGISTER_REJECTED status=" + str(response[1]))
 	return response.size() > 1 and response[0] == HTTPRequest.RESULT_SUCCESS and response[1] == 200
 
 func _heartbeat_room() -> void:

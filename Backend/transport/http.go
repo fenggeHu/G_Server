@@ -5,15 +5,16 @@ import (
 	"aigame/server/backend/usecase"
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/jackc/pgx/v5"
 	"io"
 	"math"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,14 +23,16 @@ import (
 )
 
 type Handler struct {
-	Service   *usecase.Service
-	AllowHTTP bool
-	mu        sync.Mutex
-	windows   map[string][]time.Time
+	Service            *usecase.Service
+	AllowHTTP          bool
+	AllowDevDockerHTTP bool
+	mu                 sync.Mutex
+	windows            map[string][]time.Time
 }
 
-func New(s *usecase.Service, allow bool) *Handler {
-	return &Handler{Service: s, AllowHTTP: allow, windows: make(map[string][]time.Time)}
+func New(s *usecase.Service, allow bool, options ...bool) *Handler {
+	devDocker := len(options) > 0 && options[0]
+	return &Handler{Service: s, AllowHTTP: allow, AllowDevDockerHTTP: devDocker, windows: make(map[string][]time.Time)}
 }
 func (h *Handler) slot(key string, limit int) bool {
 	h.mu.Lock()
@@ -61,6 +64,14 @@ func response(w http.ResponseWriter, status int, v any) {
 }
 func failure(w http.ResponseWriter, status int, s string) {
 	response(w, status, map[string]string{"detail": s})
+}
+
+func serviceAuthorized(header, expected string) bool {
+	const scheme = "Bearer "
+	if len(header) != len(scheme)+len(expected) || !strings.HasPrefix(header, scheme) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(header[len(scheme):]), []byte(expected)) == 1
 }
 func dbError(w http.ResponseWriter, e error) {
 	if errors.Is(e, pgx.ErrNoRows) || errors.Is(e, usecase.ErrUnauthorized) {
@@ -117,7 +128,8 @@ func decode(b []byte, v any) bool {
 }
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-	if r.TLS == nil && !(h.AllowHTTP && net.ParseIP(ip) != nil && net.ParseIP(ip).IsLoopback()) {
+	private := net.ParseIP(ip) != nil && (net.ParseIP(ip).IsLoopback() || net.ParseIP(ip).IsPrivate())
+	if r.TLS == nil && !(h.AllowHTTP && net.ParseIP(ip) != nil && net.ParseIP(ip).IsLoopback()) && !(h.AllowDevDockerHTTP && private) {
 		failure(w, 400, "https required")
 		return
 	}
@@ -194,9 +206,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if path == "/v1/internal/tickets/redeem" {
-		want := sha256.Sum256([]byte("Bearer " + h.Service.ServiceToken))
-		got := sha256.Sum256([]byte(r.Header.Get("Authorization")))
-		if subtle.ConstantTimeCompare(want[:], got[:]) != 1 {
+		if !serviceAuthorized(r.Header.Get("Authorization"), h.Service.ServiceToken) {
+			if os.Getenv("ALLOW_DEV_DOCKER_HTTP") == "1" {
+				fmt.Fprintf(os.Stderr, "dev service auth mismatch header_len=%d expected_len=%d\\n", len(r.Header.Get("Authorization")), len("Bearer "+h.Service.ServiceToken))
+			}
 			failure(w, 401, "unauthorized")
 			return
 		}
@@ -214,9 +227,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.HasPrefix(path, "/v1/internal/progress/") {
-		want := sha256.Sum256([]byte("Bearer " + h.Service.ServiceToken))
-		got := sha256.Sum256([]byte(r.Header.Get("Authorization")))
-		if subtle.ConstantTimeCompare(want[:], got[:]) != 1 {
+		if !serviceAuthorized(r.Header.Get("Authorization"), h.Service.ServiceToken) {
 			failure(w, 401, "unauthorized")
 			return
 		}
@@ -291,9 +302,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if strings.HasPrefix(path, "/v1/internal/rooms/") {
-		want := sha256.Sum256([]byte("Bearer " + h.Service.ServiceToken))
-		got := sha256.Sum256([]byte(r.Header.Get("Authorization")))
-		if subtle.ConstantTimeCompare(want[:], got[:]) != 1 {
+		if !serviceAuthorized(r.Header.Get("Authorization"), h.Service.ServiceToken) {
+			if os.Getenv("ALLOW_DEV_DOCKER_HTTP") == "1" {
+				fmt.Fprintf(os.Stderr, "dev room auth mismatch header_len=%d expected_len=%d\\n", len(r.Header.Get("Authorization")), len("Bearer "+h.Service.ServiceToken))
+			}
 			failure(w, 401, "unauthorized")
 			return
 		}

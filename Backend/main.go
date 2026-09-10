@@ -90,7 +90,7 @@ func run() error {
 		return errors.New("TLS_CERT_FILE and TLS_KEY_FILE required unless ALLOW_LOOPBACK_HTTP=1")
 	}
 	s := &usecase.Service{Store: p, ServiceToken: service, Host: env("ROOM_HOST", "127.0.0.1"), Port: port}
-	server := &http.Server{Addr: net.JoinHostPort(env("BACKEND_BIND_HOST", "127.0.0.1"), env("BACKEND_PORT", "8000")), Handler: transport.New(s, allow), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16384, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12}}
+	server := &http.Server{Addr: net.JoinHostPort(env("BACKEND_BIND_HOST", "127.0.0.1"), env("BACKEND_PORT", "8000")), Handler: transport.New(s, allow, os.Getenv("ALLOW_DEV_DOCKER_HTTP") == "1"), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16384, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12}}
 	stop, done := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer done()
 	go func() {

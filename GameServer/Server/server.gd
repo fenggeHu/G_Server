@@ -20,6 +20,7 @@ var combat_enabled := false
 var enemy := {"hp": 30, "revision": 1, "dead": false, "respawn_at": 0}
 var attack_seen: Dictionary = {}
 var attack_last: Dictionary = {}
+var player_health: Dictionary = {}
 var enemy_node: Node3D
 var preset_id := "exploration"
 var content_hash := P.CONTENT_HASH
@@ -73,6 +74,9 @@ func _start() -> void:
 			if existing != id: player_joined.rpc_id(id, identities[existing], existing, identities.size())
 		player_joined.rpc(identities[id], id, identities.size())
 		if combat_enabled: health_changed.rpc_id(id, "enemy_1", enemy.hp, enemy.revision)
+		if player_health.has(id):
+			var own_health: Dictionary = player_health[id]
+			player_health_changed.rpc_id(id, identities[id], own_health.hp, own_health.max_hp, own_health.revision)
 		print("G1 player_joined player_id=" + identities[id])
 	)
 	api.multiplayer_peer = peer
@@ -119,6 +123,7 @@ func _remove_peer(id: int) -> void:
 	var player_id: String = identities.get(id, "")
 	identities.erase(id)
 	entities.erase(id)
+	player_health.erase(id)
 	var players := get_node_or_null("Players")
 	if was_authenticated and players:
 		var node := players.get_node_or_null(_safe_name(player_id))
@@ -177,6 +182,7 @@ func _authenticate(id: int, data: PackedByteArray) -> void:
 		_reject(id); return
 	leases[id] = lease
 	identities[id] = result.player_id
+	player_health[id] = {"hp": 100, "max_hp": 100, "revision": 1}
 	var players := get_node_or_null("Players")
 	if not players:
 		players = Node.new(); players.name = "Players"; add_child(players)
@@ -190,6 +196,19 @@ func _safe_name(value: String) -> String:
 	for c in value:
 		if c.to_lower() in "abcdefghijklmnopqrstuvwxyz0123456789_": result += c
 	return result
+
+## Server-only damage producer. Client RPCs never call this method directly.
+func _apply_player_damage(connection_id: int, damage: int) -> bool:
+	if not player_health.has(connection_id) or damage <= 0:
+		return false
+	var state: Dictionary = player_health[connection_id]
+	if state.hp <= 0:
+		return false
+	state.hp = maxi(state.hp - damage, 0)
+	state.revision += 1
+	player_health[connection_id] = state
+	player_health_changed.rpc(identities[connection_id], state.hp, state.max_hp, state.revision)
+	return true
 
 func _progress_post(action: String, body: Dictionary) -> Dictionary:
 	var response := await _room_post("/v1/internal/progress/" + action, body)

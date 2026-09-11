@@ -201,7 +201,11 @@ func run() error {
 			return err
 		}
 		var amount int
-		if err = p.Pool.QueryRow(ctx, "select (inventory->>'coin')::int from player_progress where player_id=(select player_id from player where username='g1-a')").Scan(&amount); err != nil || amount != 1 {
+		winnerUsername := "g1-a"
+		if winner == "B" {
+			winnerUsername = "g1-b"
+		}
+		if err = p.Pool.QueryRow(ctx, "select coalesce((inventory->>'coin')::int,0) from player_progress where player_id=(select player_id from player where username=$1)", winnerUsername).Scan(&amount); err != nil || amount != 1 {
 			return fmt.Errorf("G3 inventory amount=%d err=%v", amount, err)
 		}
 		fmt.Printf("G3_INTEGRATION_PASS statuses=%v inventory_coin=%d\n", statuses, amount)

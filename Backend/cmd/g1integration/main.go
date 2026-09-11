@@ -296,6 +296,53 @@ func run() error {
 		fmt.Println("G1_COMBAT_DAMAGE_INTEGRATION_PASS")
 		return nil
 	}
+	if os.Getenv("G1_MULTI_RECONNECT") == "1" {
+		barrier := os.Getenv("G3_BARRIER_DIR")
+		a, ad, err := start("A", []string{"godot", "--headless", "--path", filepath.Join(root, "3D_App"), "--script", "res://Tests/Godot/g1_multi_reconnect_driver.gd"}, "G0_USERNAME=g1-a", "G1_CLIENT_ROLE=A", "G3_INTEGRATION=0", "G3_BARRIER_DIR="+barrier)
+		if err != nil {
+			return err
+		}
+		defer a.Process.Kill()
+		b, bd, err := start("B", []string{"godot", "--headless", "--path", filepath.Join(root, "3D_App"), "--script", "res://Tests/Godot/g1_multi_reconnect_driver.gd"}, "G0_USERNAME=g1-b", "G1_CLIENT_ROLE=B", "G3_INTEGRATION=0", "G3_BARRIER_DIR="+barrier)
+		if err != nil {
+			return err
+		}
+		defer b.Process.Kill()
+		barrierDeadline := time.Now().Add(25 * time.Second)
+		for !barrierExists(barrier+"/A_ready") || !barrierExists(barrier+"/B_ready") {
+			if time.Now().After(barrierDeadline) {
+				return fmt.Errorf("timeout waiting multi reconnect barrier")
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if err = os.WriteFile(barrier+"/go", []byte("ok"), 0o644); err != nil {
+			return err
+		}
+		if err = waitLog("A", "G1_MULTI_RECONNECT_PASS"); err != nil {
+			return err
+		}
+		if err = waitLog("B", "G1_MULTI_RECONNECT_PASS"); err != nil {
+			return err
+		}
+		if strings.Count(logs["gameserver"].String(), "G1 player_reconnected") < 2 {
+			return fmt.Errorf("expected two concurrent reconnects")
+		}
+		for _, entry := range []struct {
+			name string
+			done chan error
+		}{{"A", ad}, {"B", bd}} {
+			select {
+			case err := <-entry.done:
+				if err != nil {
+					return fmt.Errorf("client %s: %w", entry.name, err)
+				}
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		fmt.Println("G1_MULTI_RECONNECT_INTEGRATION_PASS")
+		return nil
+	}
 	if os.Getenv("G1_RESTART") == "1" {
 		a, ad, err := start("A", []string{"godot", "--headless", "--path", filepath.Join(root, "3D_App"), "--script", "res://Tests/Godot/g1_restart_token_driver.gd"}, "G0_USERNAME=g1-a", "G1_CLIENT_ROLE=A", "G3_INTEGRATION=0")
 		if err != nil {

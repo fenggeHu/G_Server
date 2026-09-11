@@ -180,13 +180,8 @@ func run() error {
 		if err = waitLog("A", "G1_EQUIPMENT_PASS"); err != nil {
 			return err
 		}
-		select {
-		case err := <-ad:
-			if err != nil {
-				return fmt.Errorf("client A: %w", err)
-			}
-		case <-ctx.Done():
-			return ctx.Err()
+		if err = awaitProcess(ctx, "A", ad); err != nil {
+			return err
 		}
 		fmt.Println("G1_EQUIPMENT_INTEGRATION_PASS")
 		return nil
@@ -224,13 +219,8 @@ func run() error {
 			name string
 			done chan error
 		}{{"A", ad}, {"B", bd}} {
-			select {
-			case err := <-entry.done:
-				if err != nil {
-					return fmt.Errorf("client %s: %w", entry.name, err)
-				}
-			case <-ctx.Done():
-				return ctx.Err()
+			if err = awaitProcess(ctx, entry.name, entry.done); err != nil {
+				return err
 			}
 		}
 		fmt.Println("G1_EQUIPMENT_TWO_INTEGRATION_PASS")
@@ -245,13 +235,8 @@ func run() error {
 		if err = waitLog("A", "G1_PICKUP_RANGE_PASS"); err != nil {
 			return err
 		}
-		select {
-		case err := <-ad:
-			if err != nil {
-				return fmt.Errorf("client A: %w", err)
-			}
-		case <-ctx.Done():
-			return ctx.Err()
+		if err = awaitProcess(ctx, "A", ad); err != nil {
+			return err
 		}
 		fmt.Println("G1_PICKUP_RANGE_INTEGRATION_PASS")
 		return nil
@@ -265,13 +250,8 @@ func run() error {
 		if err = waitLog("A", "G1_QUEST_PASS"); err != nil {
 			return err
 		}
-		select {
-		case err := <-ad:
-			if err != nil {
-				return fmt.Errorf("client A: %w", err)
-			}
-		case <-ctx.Done():
-			return ctx.Err()
+		if err = awaitProcess(ctx, "A", ad); err != nil {
+			return err
 		}
 		fmt.Println("G1_QUEST_INTEGRATION_PASS")
 		return nil
@@ -285,13 +265,8 @@ func run() error {
 		if err = waitLog("A", "G1_COMBAT_DAMAGE_PASS"); err != nil {
 			return err
 		}
-		select {
-		case err := <-ad:
-			if err != nil {
-				return fmt.Errorf("client A: %w", err)
-			}
-		case <-ctx.Done():
-			return ctx.Err()
+		if err = awaitProcess(ctx, "A", ad); err != nil {
+			return err
 		}
 		fmt.Println("G1_COMBAT_DAMAGE_INTEGRATION_PASS")
 		return nil
@@ -331,13 +306,8 @@ func run() error {
 			name string
 			done chan error
 		}{{"A", ad}, {"B", bd}} {
-			select {
-			case err := <-entry.done:
-				if err != nil {
-					return fmt.Errorf("client %s: %w", entry.name, err)
-				}
-			case <-ctx.Done():
-				return ctx.Err()
+			if err = awaitProcess(ctx, entry.name, entry.done); err != nil {
+				return err
 			}
 		}
 		fmt.Println("G1_MULTI_RECONNECT_INTEGRATION_PASS")
@@ -368,13 +338,8 @@ func run() error {
 		if err = waitLog("A", "G1_RESTART_TOKEN_PASS"); err != nil {
 			return err
 		}
-		select {
-		case err := <-ad:
-			if err != nil {
-				return fmt.Errorf("client A: %w", err)
-			}
-		case <-ctx.Done():
-			return ctx.Err()
+		if err = awaitProcess(ctx, "A", ad); err != nil {
+			return err
 		}
 		fmt.Println("G1_RESTART_INTEGRATION_PASS")
 		return nil
@@ -394,13 +359,8 @@ func run() error {
 		if err = waitLog("A", "G1_GRACE_EXPIRY_PASS"); err != nil {
 			return err
 		}
-		select {
-		case err := <-ad:
-			if err != nil {
-				return fmt.Errorf("client A: %w", err)
-			}
-		case <-ctx.Done():
-			return ctx.Err()
+		if err = awaitProcess(ctx, "A", ad); err != nil {
+			return err
 		}
 		fmt.Println("G1_GRACE_EXPIRE_INTEGRATION_PASS")
 		return nil
@@ -420,13 +380,8 @@ func run() error {
 		if err = waitLog("A", "G1_RECONNECT_PASS"); err != nil {
 			return err
 		}
-		select {
-		case err := <-ad:
-			if err != nil {
-				return fmt.Errorf("client A: %w", err)
-			}
-		case <-ctx.Done():
-			return ctx.Err()
+		if err = awaitProcess(ctx, "A", ad); err != nil {
+			return err
 		}
 		fmt.Println("G1_RECONNECT_INTEGRATION_PASS")
 		return nil
@@ -499,13 +454,8 @@ func run() error {
 		name string
 		done chan error
 	}{{"A", ad}, {"B", bb}} {
-		select {
-		case err := <-entry.done:
-			if err != nil {
-				return fmt.Errorf("client %s: %w", entry.name, err)
-			}
-		case <-ctx.Done():
-			return ctx.Err()
+		if err = awaitProcess(ctx, entry.name, entry.done); err != nil {
+			return err
 		}
 		for _, marker := range []string{"self=true", "self=false"} {
 			if !strings.Contains(logs[entry.name].String(), marker) {
@@ -535,4 +485,17 @@ func run() error {
 func barrierExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// awaitProcess 等待单个客户端进程结束，返回其退出错误或 context 取消。
+func awaitProcess(ctx context.Context, name string, done <-chan error) error {
+	select {
+	case err := <-done:
+		if err != nil {
+			return fmt.Errorf("client %s: %w", name, err)
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

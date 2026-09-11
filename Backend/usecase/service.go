@@ -10,20 +10,19 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/alexedwards/argon2id"
-	"sort"
 )
 
 var ErrUnauthorized = errors.New("unauthorized")
 var ErrRejected = errors.New("rejected")
 
-// QuestDefinition 是服务器拥有的任务目录项：目标需求与完成奖励。
+// questDefinition 是服务器拥有的任务目录项：目标需求与完成奖励。
 // 客户端不能自定义 required 或 reward。
-type QuestDefinition struct {
+type questDefinition struct {
 	Objectives map[string]int
 	Reward     map[string]int
 }
 
-var questCatalog = map[string]QuestDefinition{
+var questCatalog = map[string]questDefinition{
 	"starter_collect": {Objectives: map[string]int{"collect_coin": 2}, Reward: map[string]int{"gem": 1}},
 	"forest_forage":   {Objectives: map[string]int{"collect_coin": 5}, Reward: map[string]int{"gem": 2, "coin": 3}},
 	"gem_hunter":      {Objectives: map[string]int{"collect_gem": 1}, Reward: map[string]int{"coin": 5}},
@@ -48,16 +47,6 @@ func QuestReward(questID string) map[string]int {
 		out[itemID] = amount
 	}
 	return out
-}
-
-// QuestIDs 按名称排序返回目录中的任务 id，便于客户端枚举。
-func QuestIDs() []string {
-	ids := make([]string, 0, len(questCatalog))
-	for id := range questCatalog {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	return ids
 }
 
 type Store interface {

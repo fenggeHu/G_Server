@@ -14,7 +14,7 @@ func TestMigrationRollback(t *testing.T) {
 		t.Skip("run via go run ./cmd/testdb")
 	}
 	ctx := context.Background()
-	p, e := infra.Open(ctx, os.Getenv("DATABASE_URL"), os.Getenv("TEST_DB_SCHEMA"))
+	p, e := infra.Open(ctx, os.Getenv("DATABASE_URL"), os.Getenv("TEST_DB_SCHEMA")+"_mig")
 	if e != nil {
 		t.Fatal(e)
 	}

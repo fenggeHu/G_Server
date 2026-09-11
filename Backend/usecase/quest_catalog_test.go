@@ -25,17 +25,10 @@ func TestQuestCatalog(t *testing.T) {
 		t.Fatal("unknown quest reward must be nil")
 	}
 
-	ids := QuestIDs()
-	if len(ids) < 3 {
-		t.Fatalf("expected at least 3 catalog quests, got %v", ids)
+	if len(questCatalog) < 3 {
+		t.Fatalf("expected at least 3 catalog quests, got %d", len(questCatalog))
 	}
-	for i := 1; i < len(ids); i++ {
-		if ids[i-1] >= ids[i] {
-			t.Fatalf("QuestIDs not sorted: %v", ids)
-		}
-	}
-	for _, id := range ids {
-		def := questCatalog[id]
+	for id, def := range questCatalog {
 		if len(def.Objectives) == 0 || len(def.Reward) == 0 {
 			t.Fatalf("quest %s is incomplete: %+v", id, def)
 		}

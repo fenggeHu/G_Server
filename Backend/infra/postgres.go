@@ -22,6 +22,14 @@ const ProgressSchemaVersion = 2
 // 旧服务器不得静默处理新数据。
 var ErrProgressSchemaUnsupported = errors.New("unsupported progress schema version")
 
+// requireProgressVersion 校验单行 player_progress.schema_version 是否受支持。
+func requireProgressVersion(version int) error {
+	if version > ProgressSchemaVersion {
+		return fmt.Errorf("%w: found %d, supported %d", ErrProgressSchemaUnsupported, version, ProgressSchemaVersion)
+	}
+	return nil
+}
+
 type PG struct {
 	Pool   *pgxpool.Pool
 	Schema string
@@ -118,7 +126,7 @@ func (p *PG) AcquireSession(c context.Context, player, room string) (domain.Sess
 		return domain.SessionLease{}, e
 	}
 	defer tx.Rollback(c)
-	if _, e = tx.Exec(c, `insert into player_progress(player_id) values($1) on conflict(player_id) do nothing`, player); e != nil {
+	if _, e = tx.Exec(c, `insert into player_progress(player_id,schema_version) values($1,$2) on conflict(player_id) do nothing`, player, ProgressSchemaVersion); e != nil {
 		return domain.SessionLease{}, e
 	}
 	var x domain.SessionLease
@@ -152,8 +160,8 @@ func (p *PG) GetProgressSnapshot(c context.Context, playerID string) (domain.Pro
 	if err != nil {
 		return snapshot, err
 	}
-	if snapshot.SchemaVersion > ProgressSchemaVersion {
-		return snapshot, fmt.Errorf("%w: %d", ErrProgressSchemaUnsupported, snapshot.SchemaVersion)
+	if err = requireProgressVersion(snapshot.SchemaVersion); err != nil {
+		return snapshot, err
 	}
 	if err = json.Unmarshal(inventoryRaw, &snapshot.Inventory); err != nil {
 		return snapshot, err
@@ -173,9 +181,17 @@ func (p *PG) GetProgressSnapshot(c context.Context, playerID string) (domain.Pro
 func (p *PG) GetQuestSnapshot(c context.Context, playerID string) (domain.QuestSnapshot, error) {
 	var snapshot domain.QuestSnapshot
 	var raw []byte
-	err := p.Pool.QueryRow(c, `select player_id,revision,unlocks from player_progress where player_id=$1`, playerID).Scan(&snapshot.PlayerID, &snapshot.Revision, &raw)
-	if err != nil { return snapshot, err }
-	if err = json.Unmarshal(raw, &snapshot.Unlocks); err != nil { return snapshot, err }
+	var version int
+	err := p.Pool.QueryRow(c, `select player_id,schema_version,revision,unlocks from player_progress where player_id=$1`, playerID).Scan(&snapshot.PlayerID, &version, &snapshot.Revision, &raw)
+	if err != nil {
+		return snapshot, err
+	}
+	if err = requireProgressVersion(version); err != nil {
+		return snapshot, err
+	}
+	if err = json.Unmarshal(raw, &snapshot.Unlocks); err != nil {
+		return snapshot, err
+	}
 	return snapshot, nil
 }
 
@@ -303,6 +319,7 @@ func (p *PG) CommitEquipment(c context.Context, in domain.EquipmentCommit) (doma
 		var out domain.ProgressSnapshot
 		var inventoryRaw, equipmentRaw, unlocksRaw []byte
 		if err = tx.QueryRow(c, `select player_id,schema_version,revision,inventory,equipment,unlocks from player_progress where player_id=$1`, in.PlayerID).Scan(&out.PlayerID, &out.SchemaVersion, &out.Revision, &inventoryRaw, &equipmentRaw, &unlocksRaw); err != nil { return out, err }
+		if err = requireProgressVersion(out.SchemaVersion); err != nil { return out, err }
 		if err = json.Unmarshal(inventoryRaw, &out.Inventory); err != nil { return out, err }
 		if err = json.Unmarshal(equipmentRaw, &out.Equipment); err != nil { return out, err }
 		if err = json.Unmarshal(unlocksRaw, &out.Unlocks); err != nil { return out, err }
@@ -459,7 +476,8 @@ func (p *PG) ReleaseReservation(c context.Context, room, player string) error {
 	}
 	return tx.Commit(c)
 }
-func migrationsDir() string {	path := os.Getenv("MIGRATIONS_DIR")
+func migrationsDir() string {
+	path := os.Getenv("MIGRATIONS_DIR")
 	if path == "" {
 		path = "migrations"
 	}

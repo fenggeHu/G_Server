@@ -89,6 +89,8 @@ func TestG3EquipmentCommitUpdatesSnapshot(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	equipped, err := s.CommitEquipment(ctx, domain.EquipmentCommit{PlayerID: player, RoomID: "room-a", FencingToken: lease.FencingToken, ExpectedRevision: 0, OperationID: "equip-1", Slot: "weapon", ItemID: "sword", Equipped: true})
 	if err != nil || equipped.Equipment["weapon"] != "sword" || equipped.Revision != 1 { t.Fatalf("equip snapshot=%#v err=%v", equipped, err) }
+	repeat, err := s.CommitEquipment(ctx, domain.EquipmentCommit{PlayerID: player, RoomID: "room-a", FencingToken: lease.FencingToken, ExpectedRevision: 0, OperationID: "equip-1", Slot: "weapon", ItemID: "sword", Equipped: true})
+	if err != nil || repeat.Revision != 1 || repeat.Equipment["weapon"] != "sword" { t.Fatalf("idempotent equip=%#v err=%v", repeat, err) }
 	unequipped, err := s.CommitEquipment(ctx, domain.EquipmentCommit{PlayerID: player, RoomID: "room-a", FencingToken: lease.FencingToken, ExpectedRevision: 1, OperationID: "unequip-1", Slot: "weapon", Equipped: false})
 	if err != nil || len(unequipped.Equipment) != 0 || unequipped.Revision != 2 { t.Fatalf("unequip snapshot=%#v err=%v", unequipped, err) }
 }

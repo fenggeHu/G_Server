@@ -162,6 +162,23 @@ func (p *PG) CommitEquipment(c context.Context, in domain.EquipmentCommit) (doma
 	tx, err := p.Pool.Begin(c)
 	if err != nil { return domain.ProgressSnapshot{}, err }
 	defer tx.Rollback(c)
+	var existingPayload []byte
+	var existingRevision int64
+	err = tx.QueryRow(c, `select result,revision from progress_operation where player_id=$1 and operation_id=$2`, in.PlayerID, in.OperationID).Scan(&existingPayload, &existingRevision)
+	if err == nil {
+		var existing map[string]any
+		if json.Unmarshal(existingPayload, &existing) != nil || existing["slot"] != in.Slot || existing["item_id"] != in.ItemID || existing["equipped"] != in.Equipped {
+			return domain.ProgressSnapshot{}, fmt.Errorf("equipment operation conflict")
+		}
+		var out domain.ProgressSnapshot
+		var inventoryRaw, equipmentRaw, unlocksRaw []byte
+		if err = tx.QueryRow(c, `select player_id,schema_version,revision,inventory,equipment,unlocks from player_progress where player_id=$1`, in.PlayerID).Scan(&out.PlayerID, &out.SchemaVersion, &out.Revision, &inventoryRaw, &equipmentRaw, &unlocksRaw); err != nil { return out, err }
+		if err = json.Unmarshal(inventoryRaw, &out.Inventory); err != nil { return out, err }
+		if err = json.Unmarshal(equipmentRaw, &out.Equipment); err != nil { return out, err }
+		if err = json.Unmarshal(unlocksRaw, &out.Unlocks); err != nil { return out, err }
+		return out, tx.Commit(c)
+	}
+	if err != pgx.ErrNoRows { return domain.ProgressSnapshot{}, err }
 	var revision int64
 	var equipmentRaw, inventoryRaw, unlocksRaw []byte
 	if in.Equipped {
@@ -175,6 +192,8 @@ func (p *PG) CommitEquipment(c context.Context, in domain.EquipmentCommit) (doma
 	if err=json.Unmarshal(equipmentRaw,&out.Equipment); err != nil { return out,err }
 	if err=json.Unmarshal(inventoryRaw,&out.Inventory); err != nil { return out,err }
 	if err=json.Unmarshal(unlocksRaw,&out.Unlocks); err != nil { return out,err }
+	operationPayload, _ := json.Marshal(in)
+	if _, err = tx.Exec(c, `insert into progress_operation(player_id,operation_id,payload_hash,status,result,revision) values($1,$2,$3,'succeeded',$4,$5)`, in.PlayerID, in.OperationID, domainHash(string(operationPayload)), operationPayload, revision); err != nil { return out,err }
 	if err=tx.Commit(c); err != nil { return out,err }
 	return out,nil
 }

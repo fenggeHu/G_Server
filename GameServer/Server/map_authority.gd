@@ -11,6 +11,27 @@ var flight_enabled := false
 var max_flight_height := 0.0
 
 
+static func load_json(path: String, expected_map_id: String = "", expected_version: String = ""):
+	if path.is_empty() or not FileAccess.file_exists(path):
+		return null
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		return null
+	var parser := JSON.new()
+	var result := parser.parse(file.get_as_text())
+	file.close()
+	if result != OK or not parser.data is Dictionary:
+		return null
+	var authority = load("res://Server/map_authority.gd").new()
+	if not authority.configure(parser.data):
+		return null
+	if not expected_map_id.is_empty() and authority.map_id != expected_map_id:
+		return null
+	if not expected_version.is_empty() and authority.authority_version != expected_version:
+		return null
+	return authority
+
+
 func configure(data: Dictionary) -> bool:
 	map_id = String(data.get("map_id", ""))
 	authority_version = String(data.get("authority_version", ""))

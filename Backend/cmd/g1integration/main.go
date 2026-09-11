@@ -33,6 +33,10 @@ func run() error {
 	if os.Getenv("TEST_DB_INTEGRATION") != "1" {
 		return fmt.Errorf("run: go run ./cmd/testdb go run ./cmd/g1integration")
 	}
+	dbSchema := os.Getenv("TEST_DB_SCHEMA")
+	if dbSchema == "" {
+		return fmt.Errorf("TEST_DB_SCHEMA is required")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	root, err := filepath.Abs("../..")
@@ -77,7 +81,7 @@ func run() error {
 	roomPort := udp.LocalAddr().(*net.UDPAddr).Port
 	udp.Close()
 	base := fmt.Sprintf("http://127.0.0.1:%d", port)
-	env := append(os.Environ(), "ALLOW_LOOPBACK_HTTP=1", "G0_LOOPBACK_TEST=1", "G0_BACKEND_URL="+base, fmt.Sprintf("BACKEND_PORT=%d", port), fmt.Sprintf("ROOM_PORT=%d", roomPort), "ROOM_ID=g0-room", "ROOM_GENERATION=1", "G0_TEST_PASSWORD=g1-local-test-password", "G0_PASSWORD=g1-local-test-password")
+	env := append(os.Environ(), "TEST_DB_SCHEMA="+dbSchema, "ALLOW_LOOPBACK_HTTP=1", "G0_LOOPBACK_TEST=1", "G0_BACKEND_URL="+base, fmt.Sprintf("BACKEND_PORT=%d", port), fmt.Sprintf("ROOM_PORT=%d", roomPort), "ROOM_ID=g0-room", "ROOM_GENERATION=1", "G0_TEST_PASSWORD=g1-local-test-password", "G0_PASSWORD=g1-local-test-password")
 	for _, user := range []string{"g1-a", "g1-b"} {
 		cmd := exec.CommandContext(ctx, bin, "seed", user)
 		cmd.Env = env
@@ -147,7 +151,7 @@ func run() error {
 	}
 	var host, content, config, status string
 	var protocol, capacity, generation, actualPort int
-	if err = p.Pool.QueryRow(ctx, "select host,port,protocol_version,gameplay_content_hash,resolved_config_hash,capacity,generation,status from rooms where room_id='g0-room'").Scan(&host, &actualPort, &protocol, &content, &config, &capacity, &generation, &status); err != nil {
+	if err = p.Pool.QueryRow(ctx, "select host,port,protocol_version,gameplay_content_hash,resolved_config_hash,capacity,generation,status from room where room_id='g0-room'").Scan(&host, &actualPort, &protocol, &content, &config, &capacity, &generation, &status); err != nil {
 		return err
 	}
 	if host != "127.0.0.1" || actualPort != roomPort || protocol != 1 || content != "g0-empty-v1" || config != usecase.ConfigHash() || capacity != 8 || generation != 1 || status != "ready" {
@@ -189,8 +193,15 @@ func run() error {
 		if (statuses[0] == statuses[1]) || (statuses[0] != "succeeded" && statuses[1] != "succeeded") {
 			return fmt.Errorf("invalid G3 statuses %v", statuses)
 		}
+		winner := "A"
+		if statuses[0] != "succeeded" {
+			winner = "B"
+		}
+		if err = waitLog(winner, "G3_INVENTORY_SNAPSHOT"); err != nil {
+			return err
+		}
 		var amount int
-		if err = p.Pool.QueryRow(ctx, "select (inventory->>'coin')::int from player_progress where player_id=(select player_id from players where username='g1-a')").Scan(&amount); err != nil || amount != 1 {
+		if err = p.Pool.QueryRow(ctx, "select (inventory->>'coin')::int from player_progress where player_id=(select player_id from player where username='g1-a')").Scan(&amount); err != nil || amount != 1 {
 			return fmt.Errorf("G3 inventory amount=%d err=%v", amount, err)
 		}
 		fmt.Printf("G3_INTEGRATION_PASS statuses=%v inventory_coin=%d\n", statuses, amount)

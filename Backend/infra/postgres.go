@@ -179,14 +179,14 @@ func (p *PG) CommitProgress(c context.Context, in domain.ProgressCommit) (domain
 	if e != nil {
 		return old, e
 	}
-	if e = tx.Commit(c); e != nil {
-		return old, e
-	}
 	var inventory map[string]int
 	if e = tx.QueryRow(c, `select inventory from player_progress where player_id=$1`, in.PlayerID).Scan(&raw); e != nil {
 		return old, e
 	}
 	if e = json.Unmarshal(raw, &inventory); e != nil {
+		return old, e
+	}
+	if e = tx.Commit(c); e != nil {
 		return old, e
 	}
 	return domain.OperationResult{OperationID: in.OperationID, Status: domain.OperationSucceeded, Revision: revision, Payload: in.Payload, Inventory: inventory}, nil

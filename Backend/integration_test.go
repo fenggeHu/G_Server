@@ -71,7 +71,7 @@ func TestG0Integration(t *testing.T) {
 	var td map[string]any
 	json.NewDecoder(ticket.Body).Decode(&td)
 	ticket.Body.Close()
-	redeem := map[string]any{"ticket": td["ticket"], "room_id": "g0-room", "protocol_version": 1, "gameplay_content_hash": "g0-empty-v1", "resolved_config_hash": td["resolved_config_hash"]}
+	redeem := map[string]any{"ticket": td["ticket"], "room_id": "g0-room", "preset_id": td["preset_id"], "protocol_version": 1, "gameplay_content_hash": "g0-empty-v1", "resolved_config_hash": td["resolved_config_hash"]}
 	wrong := post("/v1/internal/tickets/redeem", redeem, "Bearer forged")
 	if wrong.StatusCode != 401 {
 		t.Fatalf("forged service %d", wrong.StatusCode)

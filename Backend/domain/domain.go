@@ -46,6 +46,15 @@ type PlayerProgress struct {
 	Equipment     map[string]string `json:"equipment"`
 	Unlocks       []string          `json:"unlocks"`
 }
+
+type ProgressSnapshot struct {
+	PlayerID      string            `json:"player_id"`
+	SchemaVersion int               `json:"schema_version"`
+	Revision      int64             `json:"revision"`
+	Inventory     map[string]int    `json:"inventory"`
+	Equipment     map[string]string `json:"equipment"`
+	Unlocks       []string          `json:"unlocks"`
+}
 type SessionLease struct {
 	PlayerID       string    `json:"player_id"`
 	RoomID         string    `json:"room_id"`

@@ -135,6 +135,25 @@ func (p *PG) QueryProgress(c context.Context, q domain.ProgressQuery) (domain.Op
 	x.Payload = raw
 	return x, e
 }
+
+func (p *PG) GetProgressSnapshot(c context.Context, playerID string) (domain.ProgressSnapshot, error) {
+	var snapshot domain.ProgressSnapshot
+	var inventoryRaw, equipmentRaw, unlocksRaw []byte
+	err := p.Pool.QueryRow(c, `select player_id,schema_version,revision,inventory,equipment,unlocks from player_progress where player_id=$1`, playerID).Scan(&snapshot.PlayerID, &snapshot.SchemaVersion, &snapshot.Revision, &inventoryRaw, &equipmentRaw, &unlocksRaw)
+	if err != nil {
+		return snapshot, err
+	}
+	if err = json.Unmarshal(inventoryRaw, &snapshot.Inventory); err != nil {
+		return snapshot, err
+	}
+	if err = json.Unmarshal(equipmentRaw, &snapshot.Equipment); err != nil {
+		return snapshot, err
+	}
+	if err = json.Unmarshal(unlocksRaw, &snapshot.Unlocks); err != nil {
+		return snapshot, err
+	}
+	return snapshot, nil
+}
 func (p *PG) CommitProgress(c context.Context, in domain.ProgressCommit) (domain.OperationResult, error) {
 	h := domainHash(string(in.Payload))
 	var pickup struct {

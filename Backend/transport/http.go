@@ -305,6 +305,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			response(w, 200, out)
 			return
 		}
+		if path == "/v1/internal/progress/snapshot" {
+			var x struct{ PlayerID string `json:"player_id"` }
+			if !decode(b, &x) || !text(x.PlayerID, 64) {
+				failure(w, 422, "invalid request")
+				return
+			}
+			out, e := h.Service.GetProgressSnapshot(ctx, x.PlayerID)
+			if e != nil {
+				dbError(w, e)
+				return
+			}
+			response(w, 200, out)
+			return
+		}
 	}
 	if strings.HasPrefix(path, "/v1/internal/rooms/") {
 		if !serviceAuthorized(r.Header.Get("Authorization"), h.Service.ServiceToken) {

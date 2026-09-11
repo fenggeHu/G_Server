@@ -105,7 +105,7 @@ func run() error {
 			return nil, nil, err
 		}
 		done := make(chan error, 1)
-		go func() { done <- cmd.Wait() }()
+		go func() { done <- cmd.Wait(); close(done) }()
 		return cmd, done, nil
 	}
 	defer func() {
@@ -294,6 +294,42 @@ func run() error {
 			return ctx.Err()
 		}
 		fmt.Println("G1_COMBAT_DAMAGE_INTEGRATION_PASS")
+		return nil
+	}
+	if os.Getenv("G1_RESTART") == "1" {
+		a, ad, err := start("A", []string{"godot", "--headless", "--path", filepath.Join(root, "3D_App"), "--script", "res://Tests/Godot/g1_restart_token_driver.gd"}, "G0_USERNAME=g1-a", "G1_CLIENT_ROLE=A", "G3_INTEGRATION=0")
+		if err != nil {
+			return err
+		}
+		defer a.Process.Kill()
+		if err = waitLog("gameserver", "G1 player_reconnectable"); err != nil {
+			return err
+		}
+		gs.Process.Kill()
+		<-gd
+		restarted, rd, err := start("gameserver2", []string{"godot", "--headless", "--path", filepath.Join(root, "Server/GameServer"), "--", "--server"})
+		if err != nil {
+			return err
+		}
+		defer func() { restarted.Process.Kill(); <-rd }()
+		if err = waitLog("gameserver2", "G0_SERVER_LISTENING"); err != nil {
+			return err
+		}
+		if err = waitLog("gameserver2", "G0_AUTH_REJECTED"); err != nil {
+			return err
+		}
+		if err = waitLog("A", "G1_RESTART_TOKEN_PASS"); err != nil {
+			return err
+		}
+		select {
+		case err := <-ad:
+			if err != nil {
+				return fmt.Errorf("client A: %w", err)
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		fmt.Println("G1_RESTART_INTEGRATION_PASS")
 		return nil
 	}
 	if os.Getenv("G1_GRACE_EXPIRE") == "1" {

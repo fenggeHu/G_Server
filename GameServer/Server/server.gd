@@ -4,6 +4,7 @@ const P = preload("res://Shared/protocol.gd")
 const POLICY = preload("res://Shared/network_policy.gd")
 const Movement = preload("res://Server/movement.gd")
 const WorldItems = preload("res://Server/world_items.gd")
+const MapAuthority = preload("res://Server/map_authority.gd")
 var entities: Dictionary = {}
 var server_tick := 0
 var peer := ENetMultiplayerPeer.new()
@@ -34,6 +35,7 @@ const ENEMY_ATTACK_COOLDOWN_MS := 1000
 var enemy_node: Node3D
 var preset_id := "exploration"
 var content_hash := P.CONTENT_HASH
+var map_authority = null
 
 func _ready() -> void:
 	Engine.physics_ticks_per_second = 60
@@ -44,6 +46,13 @@ func _start() -> void:
 	if preset_id.is_empty(): preset_id = P.DEFAULT_PRESET
 	combat_enabled = preset_id == "coop_combat"
 	content_hash = P.content_hash_for(preset_id)
+	var authority_path := OS.get_environment("ROOM_MAP_AUTHORITY_PATH")
+	if authority_path.is_empty():
+		authority_path = "res://Content/world/starter_valley_authority.json"
+	map_authority = MapAuthority.load_json(authority_path)
+	if map_authority == null:
+		_fatal()
+		return
 	base = OS.get_environment("G0_BACKEND_URL").trim_suffix("/")
 	service_token = OS.get_environment("ROOM_SERVICE_TOKEN")
 	if not POLICY.backend_allowed(base) or service_token.length() < 32:

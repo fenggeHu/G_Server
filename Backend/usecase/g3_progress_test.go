@@ -45,7 +45,7 @@ func TestG3ProgressRequiresSessionAndFencing(t *testing.T) {
 	}
 	payload, _ := json.Marshal(map[string]any{"item": "coin", "amount": 1})
 	result, err := s.CommitProgress(ctx, domain.ProgressCommit{PlayerID: player, RoomID: "room-a", FencingToken: lease.FencingToken, OperationID: "pickup-1", Payload: payload})
-	if err != nil || result.Status != domain.OperationSucceeded || result.Revision != 1 {
+	if err != nil || result.Status != domain.OperationSucceeded || result.Revision != 1 || result.Inventory["coin"] != 1 {
 		t.Fatalf("commit progress: %#v %v", result, err)
 	}
 	if _, err = s.CommitProgress(ctx, domain.ProgressCommit{PlayerID: player, RoomID: "room-a", FencingToken: lease.FencingToken - 1, OperationID: "pickup-2", Payload: payload}); err == nil {
@@ -65,6 +65,9 @@ func TestG3ProgressOperationIsIdempotentAndRejectsPayloadChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if first.Inventory["coin"] != 1 {
+		t.Fatalf("first commit must return inventory snapshot: %#v", first.Inventory)
+	}
 	one := []byte(`{"item":"coin","amount":1}`)
 	first, err := s.CommitProgress(ctx, domain.ProgressCommit{PlayerID: player, RoomID: "room-a", FencingToken: lease.FencingToken, OperationID: "op", Payload: one})
 	if err != nil {
@@ -76,6 +79,9 @@ func TestG3ProgressOperationIsIdempotentAndRejectsPayloadChange(t *testing.T) {
 	_ = json.Unmarshal(repeat.Payload, &repeatPayload)
 	if err != nil || repeat.Revision != first.Revision || firstPayload["item"] != repeatPayload["item"] || firstPayload["amount"] != repeatPayload["amount"] {
 		t.Fatalf("repeat must return original result: %#v %#v %v", first, repeat, err)
+	}
+	if repeat.Inventory["coin"] != 1 {
+		t.Fatalf("repeat must return inventory snapshot: %#v", repeat.Inventory)
 	}
 	if _, err = s.CommitProgress(ctx, domain.ProgressCommit{PlayerID: player, RoomID: "room-a", FencingToken: lease.FencingToken, OperationID: "op", Payload: []byte(`{"item":"gem","amount":1}`)}); err == nil {
 		t.Fatal("different payload must be rejected")

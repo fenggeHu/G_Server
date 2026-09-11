@@ -83,6 +83,10 @@ func _start() -> void:
 		if player_health.has(id):
 			var own_health: Dictionary = player_health[id]
 			player_health_changed.rpc_id(id, identities[id], own_health.hp, own_health.max_hp, own_health.revision)
+		if progress_snapshots.has(id):
+			progress_snapshot.rpc_id(id, identities[id], progress_snapshots[id])
+		if quest_snapshots.has(id):
+			quest_snapshot.rpc_id(id, identities[id], quest_snapshots[id])
 		print("G1 player_joined player_id=" + identities[id])
 	)
 	api.multiplayer_peer = peer
@@ -209,9 +213,6 @@ func _authenticate(id: int, data: PackedByteArray) -> void:
 	entities[id] = player
 	multiplayer.send_auth(id, JSON.stringify({"status": "authenticated", "room_id": room_id, "resolved_config_hash": POLICY.config_hash(), "player_id": result.player_id}).to_utf8_buffer())
 	multiplayer.complete_auth(id)
-	progress_snapshot.rpc_id(id, result.player_id, snapshot_data)
-	if quest_snapshots.has(id):
-		quest_snapshot.rpc_id(id, result.player_id, quest_snapshots[id])
 
 func _safe_name(value: String) -> String:
 	var result := "player_"

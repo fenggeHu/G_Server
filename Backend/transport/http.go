@@ -133,7 +133,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		failure(w, 400, "https required")
 		return
 	}
-	limits := map[string]int{"/v1/auth/login": 5, "/v1/auth/logout": 30, "/v1/tickets": 30, "/v1/rooms/allocate": 30, "/v1/internal/tickets/redeem": 60, "/v1/internal/rooms/register": 60, "/v1/internal/rooms/heartbeat": 120, "/v1/internal/rooms/release": 60, "/v1/internal/progress/acquire": 60, "/v1/internal/progress/renew": 120, "/v1/internal/progress/release": 60, "/v1/internal/progress/commit": 120, "/v1/internal/progress/query": 120}
+	limits := map[string]int{"/v1/auth/login": 5, "/v1/auth/logout": 30, "/v1/tickets": 30, "/v1/rooms/allocate": 30, "/v1/internal/tickets/redeem": 60, "/v1/internal/rooms/register": 60, "/v1/internal/rooms/heartbeat": 120, "/v1/internal/rooms/release": 60, "/v1/internal/progress/acquire": 60, "/v1/internal/progress/renew": 120, "/v1/internal/progress/release": 60, "/v1/internal/progress/commit": 120, "/v1/internal/progress/query": 120, "/v1/internal/progress/snapshot": 60, "/v1/internal/progress/equipment": 60, "/v1/internal/progress/quests": 60}
 	if n := limits[r.URL.Path]; n > 0 && !h.slot(r.URL.Path+"|"+ip, n) {
 		w.Header().Set("Retry-After", "60")
 		failure(w, 429, "rate limited")

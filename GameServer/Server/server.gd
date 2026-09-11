@@ -53,7 +53,9 @@ func _start() -> void:
 	var authority_path := OS.get_environment("ROOM_MAP_AUTHORITY_PATH")
 	if authority_path.is_empty():
 		authority_path = "res://Content/world/starter_valley_authority.json"
-	map_authority = MapAuthority.load_json(authority_path)
+	var expected_map_id := OS.get_environment("ROOM_MAP_ID")
+	var expected_authority_version := OS.get_environment("ROOM_MAP_AUTHORITY_VERSION")
+	map_authority = MapAuthority.load_json(authority_path, expected_map_id, expected_authority_version)
 	if map_authority == null:
 		_fatal()
 		return

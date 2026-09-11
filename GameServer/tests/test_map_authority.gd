@@ -14,6 +14,7 @@ func _initialize() -> void:
 	var loaded = MapAuthority.load_json(path, "file_map", "file-v1")
 	assert(loaded != null and loaded.contains_horizontal(Vector3.ZERO))
 	assert(MapAuthority.load_json(path, "wrong_map", "file-v1") == null)
+	assert(MapAuthority.load_json(path, "file_map", "wrong-version") == null)
 	DirAccess.remove_absolute(path)
 
 	var authority := MapAuthority.new()

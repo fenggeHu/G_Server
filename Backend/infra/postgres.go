@@ -100,7 +100,7 @@ func (p *PG) IssueTicket(c context.Context, x domain.Ticket, ticketHash, session
 	if e = tx.QueryRow(c, "select player_id from session where token_hash=$1 and player_id=$2 and revoked_at is null and expires_at>now() for update", sessionHash, x.PlayerID).Scan(&id); e != nil {
 		return e
 	}
-	_, e = tx.Exec(c, "insert into ticket(token_hash,player_id,session_hash,expires_at,room_id,preset_id,resolved_config_hash,protocol_version,gameplay_content_hash) values($1,$2,$3,now()+interval '60 seconds',$4,$5,$6,$7,$8)", ticketHash, id, sessionHash, x.RoomID, x.PresetID, x.ConfigHash, x.Protocol, x.Content)
+	_, e = tx.Exec(c, "insert into ticket(token_hash,player_id,session_hash,expires_at,room_id,preset_id,resolved_config_hash,protocol_version,gameplay_content_hash,map_id,map_content_version,map_authority_version) values($1,$2,$3,now()+interval '60 seconds',$4,$5,$6,$7,$8,$9,$10,$11)", ticketHash, id, sessionHash, x.RoomID, x.PresetID, x.ConfigHash, x.Protocol, x.Content, x.MapID, x.MapContentVersion, x.MapAuthorityVersion)
 	if e != nil {
 		return e
 	}
@@ -117,7 +117,7 @@ func (p *PG) RedeemTicket(c context.Context, x domain.Ticket) (domain.Ticket, er
 	if e = tx.QueryRow(c, "select s.token_hash from session s join ticket t on t.session_hash=s.token_hash where t.token_hash=$1 for update of s", domainHash(x.Token)).Scan(&session); e != nil {
 		return x, e
 	}
-	e = tx.QueryRow(c, "update ticket set redeemed_at=now() where token_hash=$1 and redeemed_at is null and expires_at>now() and room_id=$2 and protocol_version=$3 and gameplay_content_hash=$4 and resolved_config_hash=$5 and preset_id=$6 and exists(select 1 from session s where s.token_hash=ticket.session_hash and s.player_id=ticket.player_id and s.revoked_at is null and s.expires_at>now()) returning player_id,room_id,preset_id,resolved_config_hash", domainHash(x.Token), x.RoomID, x.Protocol, x.Content, x.ConfigHash, x.PresetID).Scan(&out.PlayerID, &out.RoomID, &out.PresetID, &out.ConfigHash)
+	e = tx.QueryRow(c, "update ticket set redeemed_at=now() where token_hash=$1 and redeemed_at is null and expires_at>now() and room_id=$2 and protocol_version=$3 and gameplay_content_hash=$4 and resolved_config_hash=$5 and preset_id=$6 and map_id=$7 and map_content_version=$8 and map_authority_version=$9 and exists(select 1 from session s where s.token_hash=ticket.session_hash and s.player_id=ticket.player_id and s.revoked_at is null and s.expires_at>now()) returning player_id,room_id,preset_id,resolved_config_hash,map_id,map_content_version,map_authority_version", domainHash(x.Token), x.RoomID, x.Protocol, x.Content, x.ConfigHash, x.PresetID, x.MapID, x.MapContentVersion, x.MapAuthorityVersion).Scan(&out.PlayerID, &out.RoomID, &out.PresetID, &out.ConfigHash, &out.MapID, &out.MapContentVersion, &out.MapAuthorityVersion)
 	if e != nil {
 		return x, e
 	}
@@ -125,6 +125,8 @@ func (p *PG) RedeemTicket(c context.Context, x domain.Ticket) (domain.Ticket, er
 	if e = tx.Commit(c); e != nil {
 		return x, e
 	}
+	out.Content = x.Content
+	out.Protocol = x.Protocol
 	return out, nil
 }
 func domainHash(s string) string           { b := sha256.Sum256([]byte(s)); return fmt.Sprintf("%x", b) }
@@ -318,7 +320,9 @@ func (p *PG) CommitEquipment(c context.Context, in domain.EquipmentCommit) (doma
 		return domain.ProgressSnapshot{}, fmt.Errorf("invalid equipment request")
 	}
 	tx, err := p.Pool.Begin(c)
-	if err != nil { return domain.ProgressSnapshot{}, err }
+	if err != nil {
+		return domain.ProgressSnapshot{}, err
+	}
 	defer tx.Rollback(c)
 	var existingPayload []byte
 	if err = lockProgressVersion(c, tx, in.PlayerID); err != nil {
@@ -333,14 +337,26 @@ func (p *PG) CommitEquipment(c context.Context, in domain.EquipmentCommit) (doma
 		}
 		var out domain.ProgressSnapshot
 		var inventoryRaw, equipmentRaw, unlocksRaw []byte
-		if err = tx.QueryRow(c, `select player_id,schema_version,revision,inventory,equipment,unlocks from player_progress where player_id=$1`, in.PlayerID).Scan(&out.PlayerID, &out.SchemaVersion, &out.Revision, &inventoryRaw, &equipmentRaw, &unlocksRaw); err != nil { return out, err }
-		if err = requireProgressVersion(out.SchemaVersion); err != nil { return out, err }
-		if err = json.Unmarshal(inventoryRaw, &out.Inventory); err != nil { return out, err }
-		if err = json.Unmarshal(equipmentRaw, &out.Equipment); err != nil { return out, err }
-		if err = json.Unmarshal(unlocksRaw, &out.Unlocks); err != nil { return out, err }
+		if err = tx.QueryRow(c, `select player_id,schema_version,revision,inventory,equipment,unlocks from player_progress where player_id=$1`, in.PlayerID).Scan(&out.PlayerID, &out.SchemaVersion, &out.Revision, &inventoryRaw, &equipmentRaw, &unlocksRaw); err != nil {
+			return out, err
+		}
+		if err = requireProgressVersion(out.SchemaVersion); err != nil {
+			return out, err
+		}
+		if err = json.Unmarshal(inventoryRaw, &out.Inventory); err != nil {
+			return out, err
+		}
+		if err = json.Unmarshal(equipmentRaw, &out.Equipment); err != nil {
+			return out, err
+		}
+		if err = json.Unmarshal(unlocksRaw, &out.Unlocks); err != nil {
+			return out, err
+		}
 		return out, tx.Commit(c)
 	}
-	if err != pgx.ErrNoRows { return domain.ProgressSnapshot{}, err }
+	if err != pgx.ErrNoRows {
+		return domain.ProgressSnapshot{}, err
+	}
 	var revision int64
 	var equipmentRaw, inventoryRaw, unlocksRaw []byte
 	var owned bool
@@ -349,23 +365,39 @@ func (p *PG) CommitEquipment(c context.Context, in domain.EquipmentCommit) (doma
 	} else {
 		err = tx.QueryRow(c, `select coalesce(equipment->>$2,'')=$3 from player_progress where player_id=$1 for update`, in.PlayerID, in.Slot, in.ItemID).Scan(&owned)
 	}
-	if err != nil { return domain.ProgressSnapshot{}, err }
-	if !owned { return domain.ProgressSnapshot{}, domain.ErrConflict }
-	if in.Equipped {
-		err = tx.QueryRow(c, `update player_progress p set revision=p.revision+1,equipment=jsonb_set(p.equipment,array[$5],to_jsonb($6::text),true) from active_player_session s where p.player_id=$1 and s.player_id=p.player_id and s.room_id=$2 and s.fencing_token=$3 and s.lease_expires_at>now() and p.revision=$4 returning p.revision,p.equipment,p.inventory,p.unlocks`, in.PlayerID,in.RoomID,in.FencingToken,in.ExpectedRevision,in.Slot,in.ItemID).Scan(&revision,&equipmentRaw,&inventoryRaw,&unlocksRaw)
-	} else {
-		err = tx.QueryRow(c, `update player_progress p set revision=p.revision+1,equipment=p.equipment-$5 from active_player_session s where p.player_id=$1 and s.player_id=p.player_id and s.room_id=$2 and s.fencing_token=$3 and s.lease_expires_at>now() and p.revision=$4 returning p.revision,p.equipment,p.inventory,p.unlocks`, in.PlayerID,in.RoomID,in.FencingToken,in.ExpectedRevision,in.Slot).Scan(&revision,&equipmentRaw,&inventoryRaw,&unlocksRaw)
+	if err != nil {
+		return domain.ProgressSnapshot{}, err
 	}
-	if err != nil { return domain.ProgressSnapshot{}, err }
+	if !owned {
+		return domain.ProgressSnapshot{}, domain.ErrConflict
+	}
+	if in.Equipped {
+		err = tx.QueryRow(c, `update player_progress p set revision=p.revision+1,equipment=jsonb_set(p.equipment,array[$5],to_jsonb($6::text),true) from active_player_session s where p.player_id=$1 and s.player_id=p.player_id and s.room_id=$2 and s.fencing_token=$3 and s.lease_expires_at>now() and p.revision=$4 returning p.revision,p.equipment,p.inventory,p.unlocks`, in.PlayerID, in.RoomID, in.FencingToken, in.ExpectedRevision, in.Slot, in.ItemID).Scan(&revision, &equipmentRaw, &inventoryRaw, &unlocksRaw)
+	} else {
+		err = tx.QueryRow(c, `update player_progress p set revision=p.revision+1,equipment=p.equipment-$5 from active_player_session s where p.player_id=$1 and s.player_id=p.player_id and s.room_id=$2 and s.fencing_token=$3 and s.lease_expires_at>now() and p.revision=$4 returning p.revision,p.equipment,p.inventory,p.unlocks`, in.PlayerID, in.RoomID, in.FencingToken, in.ExpectedRevision, in.Slot).Scan(&revision, &equipmentRaw, &inventoryRaw, &unlocksRaw)
+	}
+	if err != nil {
+		return domain.ProgressSnapshot{}, err
+	}
 	var out domain.ProgressSnapshot
 	out.PlayerID, out.Revision = in.PlayerID, revision
-	if err=json.Unmarshal(equipmentRaw,&out.Equipment); err != nil { return out,err }
-	if err=json.Unmarshal(inventoryRaw,&out.Inventory); err != nil { return out,err }
-	if err=json.Unmarshal(unlocksRaw,&out.Unlocks); err != nil { return out,err }
+	if err = json.Unmarshal(equipmentRaw, &out.Equipment); err != nil {
+		return out, err
+	}
+	if err = json.Unmarshal(inventoryRaw, &out.Inventory); err != nil {
+		return out, err
+	}
+	if err = json.Unmarshal(unlocksRaw, &out.Unlocks); err != nil {
+		return out, err
+	}
 	operationPayload, _ := json.Marshal(in)
-	if _, err = tx.Exec(c, `insert into progress_operation(player_id,operation_id,payload_hash,status,result,revision) values($1,$2,$3,'succeeded',$4,$5)`, in.PlayerID, in.OperationID, domainHash(string(operationPayload)), operationPayload, revision); err != nil { return out,err }
-	if err=tx.Commit(c); err != nil { return out,err }
-	return out,nil
+	if _, err = tx.Exec(c, `insert into progress_operation(player_id,operation_id,payload_hash,status,result,revision) values($1,$2,$3,'succeeded',$4,$5)`, in.PlayerID, in.OperationID, domainHash(string(operationPayload)), operationPayload, revision); err != nil {
+		return out, err
+	}
+	if err = tx.Commit(c); err != nil {
+		return out, err
+	}
+	return out, nil
 }
 func (p *PG) CommitProgress(c context.Context, in domain.ProgressCommit) (domain.OperationResult, error) {
 	h := domainHash(string(in.Payload))
@@ -427,7 +459,7 @@ func (p *PG) CommitProgress(c context.Context, in domain.ProgressCommit) (domain
 	return domain.OperationResult{OperationID: in.OperationID, Status: domain.OperationSucceeded, Revision: revision, Payload: in.Payload, Inventory: inventory}, nil
 }
 func (p *PG) RegisterRoom(c context.Context, x domain.RoomRecord) (domain.RoomRecord, error) {
-    e := p.Pool.QueryRow(c, `insert into room(room_id,host,port,protocol_version,gameplay_content_hash,resolved_config_hash,capacity,generation,status,used_players,last_heartbeat) values($1,$2,$3,$4,$5,$6,$7,$8,$9,0,now()) on conflict(room_id) do update set host=excluded.host,port=excluded.port,protocol_version=excluded.protocol_version,gameplay_content_hash=excluded.gameplay_content_hash,resolved_config_hash=excluded.resolved_config_hash,capacity=excluded.capacity,generation=excluded.generation,status=excluded.status,last_heartbeat=now() where room.generation<=excluded.generation returning room_id,host,port,protocol_version,gameplay_content_hash,resolved_config_hash,status,generation,capacity,used_players,last_heartbeat`, x.ID, x.Host, x.Port, x.ProtocolVersion, x.GameplayContentHash, x.ResolvedConfigHash, x.Capacity, x.Generation, x.Status).Scan(&x.ID, &x.Host, &x.Port, &x.ProtocolVersion, &x.GameplayContentHash, &x.ResolvedConfigHash, &x.Status, &x.Generation, &x.Capacity, &x.UsedPlayers, &x.LastHeartbeat)
+	e := p.Pool.QueryRow(c, `insert into room(room_id,host,port,protocol_version,gameplay_content_hash,resolved_config_hash,capacity,generation,status,used_players,last_heartbeat) values($1,$2,$3,$4,$5,$6,$7,$8,$9,0,now()) on conflict(room_id) do update set host=excluded.host,port=excluded.port,protocol_version=excluded.protocol_version,gameplay_content_hash=excluded.gameplay_content_hash,resolved_config_hash=excluded.resolved_config_hash,capacity=excluded.capacity,generation=excluded.generation,status=excluded.status,last_heartbeat=now() where room.generation<=excluded.generation returning room_id,host,port,protocol_version,gameplay_content_hash,resolved_config_hash,status,generation,capacity,used_players,last_heartbeat`, x.ID, x.Host, x.Port, x.ProtocolVersion, x.GameplayContentHash, x.ResolvedConfigHash, x.Capacity, x.Generation, x.Status).Scan(&x.ID, &x.Host, &x.Port, &x.ProtocolVersion, &x.GameplayContentHash, &x.ResolvedConfigHash, &x.Status, &x.Generation, &x.Capacity, &x.UsedPlayers, &x.LastHeartbeat)
 	return x, e
 }
 func (p *PG) HeartbeatRoom(c context.Context, id string, g, cap, used int, status string) error {

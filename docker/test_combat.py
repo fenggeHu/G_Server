@@ -36,7 +36,8 @@ def main():
                 log = open(Path(temp) / f"{role}.log", "w+")
                 logs.append(log)
                 processes.append(subprocess.Popen(["godot", "--headless", "--path", str(CLIENT),
-                                  "--", "--smoke-exit"], env=env, stdout=log, stderr=subprocess.STDOUT))
+                                  "--script", "res://Tests/Godot/g4_runner.gd", "--", "--smoke-exit"],
+                                  env=env, stdout=log, stderr=subprocess.STDOUT))
             deadline = time.monotonic() + 35
             while any(p.poll() is None for p in processes):
                 if time.monotonic() > deadline:

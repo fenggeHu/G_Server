@@ -135,7 +135,11 @@ func run() error {
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
-	gs, gd, err := start("gameserver", []string{"godot", "--headless", "--path", filepath.Join(root, "Server/GameServer"), "--", "--server"})
+	var serverExtra []string
+	if os.Getenv("G1_GRACE_EXPIRE") == "1" {
+		serverExtra = append(serverExtra, "G1_GRACE_MS=1500")
+	}
+	gs, gd, err := start("gameserver", []string{"godot", "--headless", "--path", filepath.Join(root, "Server/GameServer"), "--", "--server"}, serverExtra...)
 	if err != nil {
 		return err
 	}
@@ -290,6 +294,32 @@ func run() error {
 			return ctx.Err()
 		}
 		fmt.Println("G1_COMBAT_DAMAGE_INTEGRATION_PASS")
+		return nil
+	}
+	if os.Getenv("G1_GRACE_EXPIRE") == "1" {
+		a, ad, err := start("A", []string{"godot", "--headless", "--path", filepath.Join(root, "3D_App"), "--script", "res://Tests/Godot/g1_grace_expiry_driver.gd"}, "G0_USERNAME=g1-a", "G1_CLIENT_ROLE=A", "G3_INTEGRATION=0")
+		if err != nil {
+			return err
+		}
+		defer a.Process.Kill()
+		if err = waitLog("gameserver", "G1 player_reconnectable"); err != nil {
+			return err
+		}
+		if err = waitLog("gameserver", "G1 player_grace_expired"); err != nil {
+			return err
+		}
+		if err = waitLog("A", "G1_GRACE_EXPIRY_PASS"); err != nil {
+			return err
+		}
+		select {
+		case err := <-ad:
+			if err != nil {
+				return fmt.Errorf("client A: %w", err)
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		fmt.Println("G1_GRACE_EXPIRE_INTEGRATION_PASS")
 		return nil
 	}
 	if os.Getenv("G1_RECONNECT") == "1" {

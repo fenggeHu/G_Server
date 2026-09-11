@@ -154,7 +154,7 @@ func _remove_peer(id: int) -> void:
 			"progress_snapshot": progress_snapshots.get(id),
 			"quest_snapshot": quest_snapshots.get(id),
 			"health": player_health.get(id),
-			"expires_at": Time.get_ticks_msec() + P.RECONNECT_GRACE_MS,
+			"expires_at": Time.get_ticks_msec() + _reconnect_grace_ms(),
 		}
 	identities.erase(id)
 	entities.erase(id)
@@ -202,6 +202,12 @@ func _reconnect(id: int, body: Dictionary) -> void:
 	multiplayer.send_auth(id, JSON.stringify({"status": "authenticated", "room_id": room_id, "resolved_config_hash": POLICY.config_hash(), "player_id": player_id, "reconnect_token": new_token}).to_utf8_buffer())
 	multiplayer.complete_auth(id)
 	print("G1 player_reconnected player_id=" + player_id)
+
+func _reconnect_grace_ms() -> int:
+	var override := OS.get_environment("G1_GRACE_MS")
+	if override.is_valid_int():
+		return max(500, override.to_int())
+	return P.RECONNECT_GRACE_MS
 
 func _tick_disconnected() -> void:
 	var now := Time.get_ticks_msec()

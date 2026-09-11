@@ -449,19 +449,24 @@ func (p *PG) ReleaseReservation(c context.Context, room, player string) error {
 	}
 	return tx.Commit(c)
 }
-func Migrate(ctx context.Context, p *PG) error {
+func migrationsDir() string {
 	path := os.Getenv("MIGRATIONS_DIR")
 	if path == "" {
 		path = "migrations"
 	}
+	return path
+}
+func Migrate(ctx context.Context, p *PG) error {
+	path := migrationsDir()
 	entries, e := os.ReadDir(path)
 	if e != nil {
 		return e
 	}
 	var files []string
 	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".sql") {
-			files = append(files, entry.Name())
+		name := entry.Name()
+		if !entry.IsDir() && strings.HasSuffix(name, ".sql") && !strings.HasSuffix(name, ".down.sql") {
+			files = append(files, name)
 		}
 	}
 	sort.Strings(files)
@@ -506,4 +511,66 @@ func Migrate(ctx context.Context, p *PG) error {
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+// Rollback reverts the most recently applied migrations in reverse order using
+// the matching <name>.down.sql file. steps <= 0 rolls back all applied
+// migrations. It returns the migration names that were rolled back.
+func Rollback(ctx context.Context, p *PG, steps int) ([]string, error) {
+	path := migrationsDir()
+	tx, e := p.Pool.Begin(ctx)
+	if e != nil {
+		return nil, e
+	}
+	defer tx.Rollback(ctx)
+	if p.Schema != "" {
+		if _, e = tx.Exec(ctx, "create schema if not exists "+pgxIdent(p.Schema)); e != nil {
+			return nil, e
+		}
+	}
+	if _, e = tx.Exec(ctx, "select pg_advisory_xact_lock(884422)"); e != nil {
+		return nil, e
+	}
+	if _, e = tx.Exec(ctx, "create table if not exists schema_migration(name text primary key,checksum text not null,created_at timestamptz not null default now(),updated_at timestamptz not null default now(),status smallint not null default 1)"); e != nil {
+		return nil, e
+	}
+	rows, e := tx.Query(ctx, "select name from schema_migration order by name desc")
+	if e != nil {
+		return nil, e
+	}
+	var applied []string
+	for rows.Next() {
+		var name string
+		if e = rows.Scan(&name); e != nil {
+			rows.Close()
+			return nil, e
+		}
+		applied = append(applied, name)
+	}
+	rows.Close()
+	if e = rows.Err(); e != nil {
+		return nil, e
+	}
+	var rolled []string
+	for _, name := range applied {
+		if steps > 0 && len(rolled) >= steps {
+			break
+		}
+		down := strings.TrimSuffix(name, ".sql") + ".down.sql"
+		b, e := os.ReadFile(filepath.Join(path, down))
+		if e != nil {
+			return rolled, fmt.Errorf("missing down migration %s: %w", down, e)
+		}
+		if _, e = tx.Exec(ctx, string(b)); e != nil {
+			return rolled, fmt.Errorf("down migration %s: %w", down, e)
+		}
+		if _, e = tx.Exec(ctx, "delete from schema_migration where name=$1", name); e != nil {
+			return rolled, e
+		}
+		rolled = append(rolled, name)
+	}
+	if e = tx.Commit(ctx); e != nil {
+		return rolled, e
+	}
+	return rolled, nil
 }

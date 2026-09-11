@@ -276,15 +276,33 @@ func snapshot(_player_id: String, _position: Vector3, _velocity: Vector3, _serve
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_attack(target_id: String, attack_id: String) -> void:
-	var id := multiplayer.get_remote_sender_id(); var now := Time.get_ticks_msec()
-	if not combat_enabled or not identities.has(id) or not entities.has(id) or not enemy_node or target_id != "enemy_1" or attack_id.length() == 0 or attack_id.length() > 128: return
-	if attack_seen.has(identities[id]) and attack_seen[identities[id]].has(attack_id): return
-	if now - int(attack_last.get(id, -1000000)) < P.ATTACK_COOLDOWN_MS: return
-	if entities[id].global_position.distance_to(enemy_node.global_position) > 3.0: return
-	attack_seen[identities[id]] = attack_seen.get(identities[id], {}); attack_seen[identities[id]][attack_id] = true; attack_last[id] = now
+	var id := multiplayer.get_remote_sender_id()
+	var now := Time.get_ticks_msec()
+	if not _can_attack(id, target_id, attack_id, now): return
+	_record_attack(id, attack_id, now)
+	_apply_attack(now)
+
+func _can_attack(id: int, target_id: String, attack_id: String, now: int) -> bool:
+	if not combat_enabled or not identities.has(id) or not entities.has(id) or not enemy_node or target_id != "enemy_1": return false
+	if attack_id.is_empty() or attack_id.length() > 128: return false
+	if attack_seen.has(identities[id]) and attack_seen[identities[id]].has(attack_id): return false
+	if now - int(attack_last.get(id, -1000000)) < P.ATTACK_COOLDOWN_MS: return false
+	return entities[id].global_position.distance_squared_to(enemy_node.global_position) <= 9.0
+
+func _record_attack(id: int, attack_id: String, now: int) -> void:
+	attack_seen[identities[id]] = attack_seen.get(identities[id], {})
+	attack_seen[identities[id]][attack_id] = true
+	attack_last[id] = now
+
+func _apply_attack(now: int) -> void:
 	if enemy.dead: return
-	enemy.hp -= 10; enemy.revision += 1; health_changed.rpc("enemy_1", enemy.hp, enemy.revision)
-	if enemy.hp == 0: enemy.dead = true; enemy.respawn_at = now + 5000; entity_died.rpc("enemy_1", enemy.revision)
+	enemy.hp -= 10
+	enemy.revision += 1
+	health_changed.rpc("enemy_1", enemy.hp, enemy.revision)
+	if enemy.hp == 0:
+		enemy.dead = true
+		enemy.respawn_at = now + 5000
+		entity_died.rpc("enemy_1", enemy.revision)
 @rpc("authority", "call_remote", "reliable") func health_changed(_entity_id: String, _hp: int, _revision: int) -> void: pass
 @rpc("authority", "call_remote", "reliable") func entity_died(_entity_id: String, _revision: int) -> void: pass
 @rpc("authority", "call_remote", "reliable") func entity_spawned(_entity_id: String, _revision: int) -> void: pass

@@ -314,7 +314,7 @@ func change_equipment(request_id: String, slot: String, item_id: String, equippe
 	if identities.get(id) != player_id or not leases.has(id) or leases[id].fencing_token != lease.fencing_token or not multiplayer.get_peers().has(id):
 		return
 	if response.is_empty():
-		equipment_result.rpc_id(id, request_id, {"status": "unknown"})
+		equipment_result.rpc_id(id, request_id, {"status": "rejected" if _last_progress_status == 409 else "unknown"})
 		return
 	progress_snapshots[id] = response
 	equipment_result.rpc_id(id, request_id, {"status": "succeeded", "snapshot": response})
@@ -335,7 +335,7 @@ func advance_quest(quest_id: String, objective_id: String, request_id: String, r
 	if identities.get(id) != player_id or not leases.has(id) or leases[id].fencing_token != lease.fencing_token or not multiplayer.get_peers().has(id):
 		return
 	if response.is_empty():
-		quest_result.rpc_id(id, request_id, {"status": "unknown"})
+		quest_result.rpc_id(id, request_id, {"status": "rejected" if _last_progress_status == 422 else "unknown"})
 		return
 	progress_snapshots[id] = response
 	quest_result.rpc_id(id, request_id, {"status": "succeeded", "snapshot": response})
@@ -356,10 +356,14 @@ func _apply_player_damage(connection_id: int, damage: int) -> bool:
 	player_health_changed.rpc(identities[connection_id], state.hp, state.max_hp, state.revision)
 	return true
 
+var _last_progress_status := 0
+
 func _progress_post(action: String, body: Dictionary) -> Dictionary:
+	_last_progress_status = 0
 	var response := await _room_post("/v1/internal/progress/" + action, body)
 	if response.size() <= 3 or response[0] != HTTPRequest.RESULT_SUCCESS or response[1] != 200:
 		if response.size() > 1:
+			_last_progress_status = int(response[1])
 			print("G3_PROGRESS_FAILED action=" + action + " status=" + str(response[1]) + " body=" + (response[3].get_string_from_utf8() if response.size() > 3 else ""))
 		return {}
 	var p := JSON.new()

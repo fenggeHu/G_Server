@@ -76,6 +76,8 @@ func serviceAuthorized(header, expected string) bool {
 func dbError(w http.ResponseWriter, e error) {
 	if errors.Is(e, pgx.ErrNoRows) || errors.Is(e, usecase.ErrUnauthorized) {
 		failure(w, 401, "unauthorized")
+	} else if errors.Is(e, domain.ErrConflict) {
+		failure(w, 409, "conflict")
 	} else {
 		failure(w, 503, "database unavailable")
 	}

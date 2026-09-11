@@ -1,6 +1,11 @@
 package domain
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+var ErrConflict = errors.New("conflict")
 
 const (
 	Preset  = "exploration"

@@ -14,7 +14,10 @@ var service_token := ""
 var generation := 0
 var auth_generation := 0
 var leases: Dictionary = {}
-var pickup_entities := {"pickup-1": {"position": Vector3.ZERO, "state": "available", "item": "coin"}}
+var pickup_entities := {
+	"pickup-1": {"position": Vector3(1.5, 0, 0), "state": "available", "item": "coin"},
+	"pickup-far": {"position": Vector3(60.0, 0, 60.0), "state": "available", "item": "coin"},
+}
 var heartbeat: Timer
 var combat_enabled := false
 var enemy := {"hp": 30, "revision": 1, "dead": false, "respawn_at": 0}
@@ -367,6 +370,9 @@ func _try_pickup(id: int, entity_id: String, request_id: String) -> void:
 	var entity: Dictionary = pickup_entities[entity_id]
 	if entity.state != "available":
 		pickup_result.rpc_id(id, request_id, {"status": "rejected", "code": "already_consumed"})
+		return
+	if entities[id].global_position.distance_squared_to(entity.get("position", Vector3.ZERO)) > 12.25:
+		pickup_result.rpc_id(id, request_id, {"status": "rejected", "code": "out_of_range"})
 		return
 	entity.state = "reserved"; entity.operation_id = identities[id] + ":" + request_id
 	pickup_entities[entity_id] = entity

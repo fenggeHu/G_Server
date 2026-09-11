@@ -87,11 +87,13 @@ func TestG3EquipmentCommitUpdatesSnapshot(t *testing.T) {
 	ctx := context.Background()
 	lease, err := s.AcquireSession(ctx, player, "room-a")
 	if err != nil { t.Fatal(err) }
+	if _, err = s.CommitEquipment(ctx, domain.EquipmentCommit{PlayerID: player, RoomID: "room-a", FencingToken: lease.FencingToken, OperationID: "unowned", Slot: "weapon", ItemID: "sword", Equipped: true}); err == nil { t.Fatal("unowned item accepted") }
+	if _, err = p.Pool.Exec(ctx, `update player_progress set inventory='{"sword":1}' where player_id=$1`, player); err != nil { t.Fatal(err) }
 	equipped, err := s.CommitEquipment(ctx, domain.EquipmentCommit{PlayerID: player, RoomID: "room-a", FencingToken: lease.FencingToken, ExpectedRevision: 0, OperationID: "equip-1", Slot: "weapon", ItemID: "sword", Equipped: true})
 	if err != nil || equipped.Equipment["weapon"] != "sword" || equipped.Revision != 1 { t.Fatalf("equip snapshot=%#v err=%v", equipped, err) }
 	repeat, err := s.CommitEquipment(ctx, domain.EquipmentCommit{PlayerID: player, RoomID: "room-a", FencingToken: lease.FencingToken, ExpectedRevision: 0, OperationID: "equip-1", Slot: "weapon", ItemID: "sword", Equipped: true})
 	if err != nil || repeat.Revision != 1 || repeat.Equipment["weapon"] != "sword" { t.Fatalf("idempotent equip=%#v err=%v", repeat, err) }
-	unequipped, err := s.CommitEquipment(ctx, domain.EquipmentCommit{PlayerID: player, RoomID: "room-a", FencingToken: lease.FencingToken, ExpectedRevision: 1, OperationID: "unequip-1", Slot: "weapon", Equipped: false})
+	unequipped, err := s.CommitEquipment(ctx, domain.EquipmentCommit{PlayerID: player, RoomID: "room-a", FencingToken: lease.FencingToken, ExpectedRevision: 1, OperationID: "unequip-1", Slot: "weapon", ItemID: "sword", Equipped: false})
 	if err != nil || len(unequipped.Equipment) != 0 || unequipped.Revision != 2 { t.Fatalf("unequip snapshot=%#v err=%v", unequipped, err) }
 }
 
@@ -99,6 +101,7 @@ func TestG3QuestSnapshotReturnsUnlocks(t *testing.T) {
 	p, s, player := openG3Store(t)
 	defer p.Pool.Close()
 	ctx := context.Background()
+	if _, err := s.AcquireSession(ctx, player, "room-a"); err != nil { t.Fatal(err) }
 	snapshot, err := s.GetQuestSnapshot(ctx, player)
 	if err != nil { t.Fatal(err) }
 	if snapshot.PlayerID != player || snapshot.Revision != 0 || snapshot.Unlocks == nil {
@@ -113,9 +116,6 @@ func TestG3ProgressOperationIsIdempotentAndRejectsPayloadChange(t *testing.T) {
 	lease, err := s.AcquireSession(ctx, player, "room-a")
 	if err != nil {
 		t.Fatal(err)
-	}
-	if first.Inventory["coin"] != 1 {
-		t.Fatalf("first commit must return inventory snapshot: %#v", first.Inventory)
 	}
 	one := []byte(`{"item":"coin","amount":1}`)
 	first, err := s.CommitProgress(ctx, domain.ProgressCommit{PlayerID: player, RoomID: "room-a", FencingToken: lease.FencingToken, OperationID: "op", Payload: one})

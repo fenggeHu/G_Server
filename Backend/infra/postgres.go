@@ -190,6 +190,14 @@ func (p *PG) CommitEquipment(c context.Context, in domain.EquipmentCommit) (doma
 	if err != pgx.ErrNoRows { return domain.ProgressSnapshot{}, err }
 	var revision int64
 	var equipmentRaw, inventoryRaw, unlocksRaw []byte
+	var owned bool
+	if in.Equipped {
+		err = tx.QueryRow(c, `select coalesce((inventory->>$2)::int,0)>0 from player_progress where player_id=$1 for update`, in.PlayerID, in.ItemID).Scan(&owned)
+	} else {
+		err = tx.QueryRow(c, `select coalesce(equipment->>$2,'')=$3 from player_progress where player_id=$1 for update`, in.PlayerID, in.Slot, in.ItemID).Scan(&owned)
+	}
+	if err != nil { return domain.ProgressSnapshot{}, err }
+	if !owned { return domain.ProgressSnapshot{}, fmt.Errorf("equipment ownership mismatch") }
 	if in.Equipped {
 		err = tx.QueryRow(c, `update player_progress p set revision=p.revision+1,equipment=jsonb_set(p.equipment,array[$5],to_jsonb($6::text),true) from active_player_session s where p.player_id=$1 and s.player_id=p.player_id and s.room_id=$2 and s.fencing_token=$3 and s.lease_expires_at>now() and p.revision=$4 returning p.revision,p.equipment,p.inventory,p.unlocks`, in.PlayerID,in.RoomID,in.FencingToken,in.ExpectedRevision,in.Slot,in.ItemID).Scan(&revision,&equipmentRaw,&inventoryRaw,&unlocksRaw)
 	} else {

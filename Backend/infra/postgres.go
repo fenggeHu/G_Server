@@ -155,6 +155,15 @@ func (p *PG) GetProgressSnapshot(c context.Context, playerID string) (domain.Pro
 	return snapshot, nil
 }
 
+func (p *PG) GetQuestSnapshot(c context.Context, playerID string) (domain.QuestSnapshot, error) {
+	var snapshot domain.QuestSnapshot
+	var raw []byte
+	err := p.Pool.QueryRow(c, `select player_id,revision,unlocks from player_progress where player_id=$1`, playerID).Scan(&snapshot.PlayerID, &snapshot.Revision, &raw)
+	if err != nil { return snapshot, err }
+	if err = json.Unmarshal(raw, &snapshot.Unlocks); err != nil { return snapshot, err }
+	return snapshot, nil
+}
+
 func (p *PG) CommitEquipment(c context.Context, in domain.EquipmentCommit) (domain.ProgressSnapshot, error) {
 	if in.PlayerID == "" || in.RoomID == "" || in.Slot == "" || len(in.Slot) > 32 || len(in.ItemID) > 128 || in.OperationID == "" || in.FencingToken < 1 {
 		return domain.ProgressSnapshot{}, fmt.Errorf("invalid equipment request")

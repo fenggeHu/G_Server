@@ -124,6 +124,7 @@ type ProgressStore interface {
 	QueryProgress(context.Context, domain.ProgressQuery) (domain.OperationResult, error)
 	GetProgressSnapshot(context.Context, string) (domain.ProgressSnapshot, error)
 	CommitEquipment(context.Context, domain.EquipmentCommit) (domain.ProgressSnapshot, error)
+	GetQuestSnapshot(context.Context, string) (domain.QuestSnapshot, error)
 }
 
 func (s *Service) RenewSession(ctx context.Context, x domain.SessionLease) (domain.SessionLease, error) {
@@ -142,6 +143,10 @@ func (s *Service) GetProgressSnapshot(ctx context.Context, playerID string) (dom
 
 func (s *Service) CommitEquipment(ctx context.Context, x domain.EquipmentCommit) (domain.ProgressSnapshot, error) {
 	return s.Store.CommitEquipment(ctx, x)
+}
+
+func (s *Service) GetQuestSnapshot(ctx context.Context, playerID string) (domain.QuestSnapshot, error) {
+	return s.Store.GetQuestSnapshot(ctx, playerID)
 }
 
 func (s *Service) AcquireSession(ctx context.Context, playerID, roomID string) (domain.SessionLease, error) {

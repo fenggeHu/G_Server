@@ -55,6 +55,12 @@ type ProgressSnapshot struct {
 	Equipment     map[string]string `json:"equipment"`
 	Unlocks       []string          `json:"unlocks"`
 }
+
+type QuestSnapshot struct {
+	PlayerID string `json:"player_id"`
+	Revision int64 `json:"revision"`
+	Unlocks []string `json:"unlocks"`
+}
 type SessionLease struct {
 	PlayerID       string    `json:"player_id"`
 	RoomID         string    `json:"room_id"`

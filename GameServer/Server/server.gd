@@ -377,12 +377,25 @@ func _try_pickup(id: int, entity_id: String, request_id: String) -> void:
 		pickup_result.rpc_id(id, request_id, {"status": "unknown", "code": "commit_uncertain"})
 		return
 	print("G3_PICKUP_COMMIT_RESULT player_id=" + identities[id] + " status=" + str(out.get("status", "missing")))
+	if out.get("status") == "succeeded":
+		entity.state = "consumed"; pickup_entities[entity_id] = entity
+		_advance_progress_snapshot(id, out)
 	if out.has("inventory") and out.inventory is Dictionary:
 		out["inventory"] = _inventory_snapshot(identities[id], int(out.get("revision", 0)), out.inventory)
 	if out.get("status") == "succeeded":
-		entity.state = "consumed"; pickup_entities[entity_id] = entity; pickup_result.rpc_id(id, request_id, out)
+		pickup_result.rpc_id(id, request_id, out)
 	else:
 		entity.state = "available"; pickup_entities[entity_id] = entity; pickup_result.rpc_id(id, request_id, out)
+
+## 拾取成功后推进权威进度快照并推送给客户端，使 inventory 与 equipment 共享同一 revision。
+func _advance_progress_snapshot(id: int, out: Dictionary) -> void:
+	var cached: Dictionary = progress_snapshots.get(id, {})
+	cached["player_id"] = identities[id]
+	cached["revision"] = int(out.get("revision", cached.get("revision", 0)))
+	if out.has("inventory") and out.inventory is Dictionary:
+		cached["inventory"] = out.inventory
+	progress_snapshots[id] = cached
+	progress_snapshot.rpc_id(id, identities[id], cached)
 
 func _inventory_snapshot(player_id: String, revision: int, values: Dictionary) -> Dictionary:
 	var entries: Array = []

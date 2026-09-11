@@ -24,6 +24,9 @@ var player_health: Dictionary = {}
 var progress_snapshots: Dictionary = {}
 var quest_snapshots: Dictionary = {}
 var enemy_attack_last: Dictionary = {}
+var reconnect_tokens: Dictionary = {}
+var disconnected: Dictionary = {}
+var grace_timer: Timer
 const ENEMY_ATTACK_RANGE_SQ := 9.0
 const ENEMY_ATTACK_DAMAGE := 10
 const ENEMY_ATTACK_COOLDOWN_MS := 1000
@@ -96,6 +99,11 @@ func _start() -> void:
 	add_child(heartbeat)
 	heartbeat.start()
 	var lease_timer := Timer.new(); lease_timer.wait_time = 10.0; lease_timer.timeout.connect(_renew_sessions); add_child(lease_timer); lease_timer.start()
+	grace_timer = Timer.new()
+	grace_timer.wait_time = 1.0
+	grace_timer.timeout.connect(_tick_disconnected)
+	add_child(grace_timer)
+	grace_timer.start()
 	print("G0_SERVER_LISTENING")
 
 func _room_post(path: String, body: Dictionary) -> Array:
@@ -131,19 +139,83 @@ func _remove_peer(id: int) -> void:
 	var was_authenticated := identities.has(id)
 	pending.erase(id)
 	var player_id: String = identities.get(id, "")
+	enemy_attack_last.erase(id)
+	if was_authenticated:
+		if disconnected.has(player_id):
+			var old = disconnected[player_id].get("entity")
+			if old != null and is_instance_valid(old) and old != entities.get(id):
+				old.queue_free()
+		disconnected[player_id] = {
+			"entity": entities.get(id),
+			"lease": leases.get(id),
+			"progress_snapshot": progress_snapshots.get(id),
+			"quest_snapshot": quest_snapshots.get(id),
+			"health": player_health.get(id),
+			"expires_at": Time.get_ticks_msec() + P.RECONNECT_GRACE_MS,
+		}
 	identities.erase(id)
 	entities.erase(id)
+	leases.erase(id)
 	player_health.erase(id)
 	progress_snapshots.erase(id)
 	quest_snapshots.erase(id)
-	enemy_attack_last.erase(id)
-	var players := get_node_or_null("Players")
-	if was_authenticated and players:
-		var node := players.get_node_or_null(_safe_name(player_id))
-		if node: node.queue_free()
+	if was_authenticated:
 		player_left.rpc(player_id, id, identities.size())
 		print("G1 player_left player_id=" + player_id)
+		print("G1 player_reconnectable player_id=" + player_id)
+
+func _issue_reconnect_token(player_id: String) -> String:
+	var token := Crypto.new().generate_random_bytes(P.RECONNECT_TOKEN_LENGTH / 2).hex_encode()
+	reconnect_tokens[player_id] = token
+	return token
+
+func _reconnect(id: int, body: Dictionary) -> void:
+	var token := str(body.get("reconnect_token", ""))
+	if token.length() != P.RECONNECT_TOKEN_LENGTH or body.get("room_id") != room_id or body.get("protocol_version") != P.PROTOCOL_VERSION or body.get("gameplay_content_hash") != content_hash:
+		_reject(id)
+		return
+	var player_id := ""
+	for pid in reconnect_tokens:
+		if reconnect_tokens[pid] == token:
+			player_id = pid
+			break
+	if player_id.is_empty() or not disconnected.has(player_id) or identities.values().has(player_id):
+		_reject(id)
+		return
+	var saved: Dictionary = disconnected[player_id]
+	if Time.get_ticks_msec() > int(saved.expires_at):
+		disconnected.erase(player_id)
+		reconnect_tokens.erase(player_id)
+		_reject(id)
+		return
+	disconnected.erase(player_id)
+	identities[id] = player_id
+	if saved.entity != null: entities[id] = saved.entity
+	if saved.lease != null: leases[id] = saved.lease
+	if saved.progress_snapshot != null: progress_snapshots[id] = saved.progress_snapshot
+	if saved.quest_snapshot != null: quest_snapshots[id] = saved.quest_snapshot
+	if saved.health != null: player_health[id] = saved.health
+	var new_token := _issue_reconnect_token(player_id)
+	multiplayer.send_auth(id, JSON.stringify({"status": "authenticated", "room_id": room_id, "resolved_config_hash": POLICY.config_hash(), "player_id": player_id, "reconnect_token": new_token}).to_utf8_buffer())
+	multiplayer.complete_auth(id)
+	print("G1 player_reconnected player_id=" + player_id)
+
+func _tick_disconnected() -> void:
+	var now := Time.get_ticks_msec()
+	for player_id in disconnected.keys():
+		var saved: Dictionary = disconnected[player_id]
+		if now <= int(saved.expires_at):
+			continue
+		disconnected.erase(player_id)
+		reconnect_tokens.erase(player_id)
+		var lease = saved.get("lease")
+		if lease != null:
+			await _progress_post("release", {"player_id": player_id, "room_id": room_id, "fencing_token": lease.fencing_token})
 		await _room_post("/v1/internal/rooms/release", {"room_id": room_id, "player_id": player_id})
+		var entity = saved.get("entity")
+		if entity != null and is_instance_valid(entity):
+			entity.queue_free()
+		print("G1 player_grace_expired player_id=" + player_id)
 
 func _reject(id: int) -> void:
 	_remove_peer(id)
@@ -160,6 +232,9 @@ func _authenticate(id: int, data: PackedByteArray) -> void:
 		_reject(id)
 		return
 	var body: Dictionary = parser.data
+	if body.get("reconnect_token") is String:
+		_reconnect(id, body)
+		return
 	if body.size() != 6 or not body.get("ticket") is String or body.ticket.is_empty() or body.ticket.length() > 256 or body.get("room_id") != room_id or body.get("protocol_version") != P.PROTOCOL_VERSION or body.get("gameplay_content_hash") != content_hash or body.get("resolved_config_hash") != POLICY.config_hash():
 		_reject(id)
 		return
@@ -211,7 +286,8 @@ func _authenticate(id: int, data: PackedByteArray) -> void:
 		players = Node.new(); players.name = "Players"; add_child(players)
 	var player := Movement.new(); player.name = _safe_name(result.player_id); player.set_meta("player_id", result.player_id); player.set_meta("connection_id", id); players.add_child(player)
 	entities[id] = player
-	multiplayer.send_auth(id, JSON.stringify({"status": "authenticated", "room_id": room_id, "resolved_config_hash": POLICY.config_hash(), "player_id": result.player_id}).to_utf8_buffer())
+	var reconnect_token := _issue_reconnect_token(result.player_id)
+	multiplayer.send_auth(id, JSON.stringify({"status": "authenticated", "room_id": room_id, "resolved_config_hash": POLICY.config_hash(), "player_id": result.player_id, "reconnect_token": reconnect_token}).to_utf8_buffer())
 	multiplayer.complete_auth(id)
 
 func _safe_name(value: String) -> String:
@@ -273,6 +349,14 @@ func _renew_sessions() -> void:
 		if out.is_empty():
 			leases[id]["uncertain"] = true
 		else: leases[id] = out
+	for player_id in disconnected.keys():
+		var saved: Dictionary = disconnected[player_id]
+		var lease = saved.get("lease")
+		if lease == null: continue
+		var out := await _progress_post("renew", {"player_id": player_id, "room_id": room_id, "fencing_token": lease.fencing_token})
+		if not out.is_empty():
+			saved.lease = out
+			disconnected[player_id] = saved
 
 func _try_pickup(id: int, entity_id: String, request_id: String) -> void:
 	if not identities.has(id) or not leases.has(id) or leases[id].get("uncertain", false):

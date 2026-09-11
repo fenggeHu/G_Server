@@ -157,6 +157,32 @@ func run() error {
 	if host != "127.0.0.1" || actualPort != roomPort || protocol != 1 || content != "g0-empty-v1" || config != usecase.ConfigHash() || capacity != 8 || generation != 1 || status != "ready" {
 		return fmt.Errorf("registered fields mismatch")
 	}
+	if os.Getenv("G1_RECONNECT") == "1" {
+		a, ad, err := start("A", []string{"godot", "--headless", "--path", filepath.Join(root, "3D_App"), "--script", "res://Tests/Godot/g1_reconnect_driver.gd"}, "G0_USERNAME=g1-a", "G1_CLIENT_ROLE=A", "G3_INTEGRATION=0")
+		if err != nil {
+			return err
+		}
+		defer a.Process.Kill()
+		if err = waitLog("gameserver", "G1 player_reconnectable"); err != nil {
+			return err
+		}
+		if err = waitLog("gameserver", "G1 player_reconnected"); err != nil {
+			return err
+		}
+		if err = waitLog("A", "G1_RECONNECT_PASS"); err != nil {
+			return err
+		}
+		select {
+		case err := <-ad:
+			if err != nil {
+				return fmt.Errorf("client A: %w", err)
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		fmt.Println("G1_RECONNECT_INTEGRATION_PASS")
+		return nil
+	}
 	// G1 keeps its late-join lease check; G3 starts both clients together to race one pickup.
 	a, ad, err := start("A", []string{"godot", "--headless", "--path", filepath.Join(root, "3D_App"), "--", "--smoke-exit"}, "G0_USERNAME=g1-a", "G1_CLIENT_ROLE=A", "G3_INTEGRATION="+os.Getenv("G3_INTEGRATION"), "G3_BARRIER_DIR="+os.Getenv("G3_BARRIER_DIR"))
 	if err != nil {

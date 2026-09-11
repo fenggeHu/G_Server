@@ -3,6 +3,7 @@ extends Node
 const P = preload("res://Shared/protocol.gd")
 const POLICY = preload("res://Shared/network_policy.gd")
 const Movement = preload("res://Server/movement.gd")
+const WorldItems = preload("res://Server/world_items.gd")
 var entities: Dictionary = {}
 var server_tick := 0
 var peer := ENetMultiplayerPeer.new()
@@ -14,10 +15,7 @@ var service_token := ""
 var generation := 0
 var auth_generation := 0
 var leases: Dictionary = {}
-var pickup_entities := {
-	"pickup-1": {"position": Vector3(1.5, 0, 0), "state": "available", "item": "coin"},
-	"pickup-far": {"position": Vector3(60.0, 0, 60.0), "state": "available", "item": "coin"},
-}
+var pickup_entities := WorldItems.build()
 var heartbeat: Timer
 var combat_enabled := false
 var enemy := {"hp": 30, "revision": 1, "dead": false, "respawn_at": 0}

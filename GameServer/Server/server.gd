@@ -21,6 +21,10 @@ var enemy := {"hp": 30, "revision": 1, "dead": false, "respawn_at": 0}
 var attack_seen: Dictionary = {}
 var attack_last: Dictionary = {}
 var player_health: Dictionary = {}
+var enemy_attack_last: Dictionary = {}
+const ENEMY_ATTACK_RANGE_SQ := 9.0
+const ENEMY_ATTACK_DAMAGE := 10
+const ENEMY_ATTACK_COOLDOWN_MS := 1000
 var enemy_node: Node3D
 var preset_id := "exploration"
 var content_hash := P.CONTENT_HASH
@@ -124,6 +128,7 @@ func _remove_peer(id: int) -> void:
 	identities.erase(id)
 	entities.erase(id)
 	player_health.erase(id)
+	enemy_attack_last.erase(id)
 	var players := get_node_or_null("Players")
 	if was_authenticated and players:
 		var node := players.get_node_or_null(_safe_name(player_id))
@@ -268,6 +273,8 @@ func _physics_process(_delta: float) -> void:
 	if combat_enabled and enemy.dead and Time.get_ticks_msec() >= enemy.respawn_at:
 		enemy = {"hp": 30, "revision": enemy.revision + 1, "dead": false, "respawn_at": 0}; entity_spawned.rpc("enemy_1", enemy.revision)
 	server_tick = (server_tick + 1) & 0xffffffff
+	if combat_enabled:
+		_tick_enemy_attacks()
 	if peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED: return
 	for id in entities:
 		if not multiplayer.get_peers().has(id): continue
@@ -276,6 +283,21 @@ func _physics_process(_delta: float) -> void:
 		for recipient in multiplayer.get_peers():
 			if identities.has(recipient):
 				snapshot.rpc_id(recipient, identities[id], entity.position, entity.velocity, server_tick, entity.connection_epoch, entity.last_processed_input)
+
+func _tick_enemy_attacks() -> void:
+	if enemy.dead or enemy_node == null:
+		return
+	var now := Time.get_ticks_msec()
+	for id in entities:
+		if not identities.has(id) or not player_health.has(id):
+			continue
+		if now - int(enemy_attack_last.get(id, -1000000)) < ENEMY_ATTACK_COOLDOWN_MS:
+			continue
+		var entity = entities[id]
+		if entity.global_position.distance_squared_to(enemy_node.global_position) > ENEMY_ATTACK_RANGE_SQ:
+			continue
+		if _apply_player_damage(id, ENEMY_ATTACK_DAMAGE):
+			enemy_attack_last[id] = now
 
 @rpc("any_peer", "call_remote", "unreliable_ordered", 0)
 func move_input(sequence: int, direction: Vector2) -> void:

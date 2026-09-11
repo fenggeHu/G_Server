@@ -25,3 +25,5 @@ func MapDefinitionFor(id string) (MapDefinition, bool) {
 	value, ok := mapCatalog[id]
 	return value, ok
 }
+
+func DefaultMapDefinition() MapDefinition { return mapCatalog[domain.DefaultMap] }

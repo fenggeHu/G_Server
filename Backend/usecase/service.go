@@ -111,7 +111,20 @@ func (s *Service) Ticket(ctx context.Context, playerID, sessionHash, preset, con
 		return domain.Ticket{}, errors.New("version mismatch")
 	}
 	t := token(48)
-	x := domain.Ticket{Token: t, PlayerID: playerID, RoomID: domain.Room, PresetID: preset, ConfigHash: ConfigHashFor(preset, content), Protocol: proto, Content: content}
+	x := domain.Ticket{Token: t, PlayerID: playerID, RoomID: domain.Room, PresetID: preset, ConfigHash: ConfigHashFor(preset, content), Protocol: proto, Content: content, MapID: domain.DefaultMap, MapContentVersion: domain.DefaultMapContent, MapAuthorityVersion: domain.DefaultMapAuthority}
+	return x, s.Store.IssueTicket(ctx, x, Hash(t), sessionHash)
+}
+
+func (s *Service) TicketForMap(ctx context.Context, playerID, sessionHash, preset, content, mapID string, proto int) (domain.Ticket, error) {
+	if !validPreset(preset, content, proto) {
+		return domain.Ticket{}, errors.New("version mismatch")
+	}
+	mapDef, ok := MapDefinitionFor(mapID)
+	if !ok {
+		return domain.Ticket{}, errors.New("map unavailable")
+	}
+	t := token(48)
+	x := domain.Ticket{Token: t, PlayerID: playerID, RoomID: domain.Room, PresetID: preset, ConfigHash: ConfigHashFor(preset, content), Protocol: proto, Content: content, MapID: mapDef.ID, MapContentVersion: mapDef.ContentVersion, MapAuthorityVersion: mapDef.AuthorityVersion}
 	return x, s.Store.IssueTicket(ctx, x, Hash(t), sessionHash)
 }
 func validPreset(preset, content string, proto int) bool {

@@ -46,6 +46,10 @@ func _start() -> void:
 	if preset_id.is_empty(): preset_id = P.DEFAULT_PRESET
 	combat_enabled = preset_id == "coop_combat"
 	content_hash = P.content_hash_for(preset_id)
+	if not WorldItems.validate(pickup_entities):
+		print("G0_WORLD_ITEMS_INVALID")
+		_fatal()
+		return
 	var authority_path := OS.get_environment("ROOM_MAP_AUTHORITY_PATH")
 	if authority_path.is_empty():
 		authority_path = "res://Content/world/starter_valley_authority.json"

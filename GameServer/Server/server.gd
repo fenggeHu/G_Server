@@ -306,3 +306,4 @@ func _apply_attack(now: int) -> void:
 @rpc("authority", "call_remote", "reliable") func health_changed(_entity_id: String, _hp: int, _revision: int) -> void: pass
 @rpc("authority", "call_remote", "reliable") func entity_died(_entity_id: String, _revision: int) -> void: pass
 @rpc("authority", "call_remote", "reliable") func entity_spawned(_entity_id: String, _revision: int) -> void: pass
+@rpc("authority", "call_remote", "reliable") func player_health_changed(_entity_id: String, _hp: int, _max_hp: int, _revision: int) -> void: pass

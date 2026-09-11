@@ -57,6 +57,30 @@ func TestG3ProgressRequiresSessionAndFencing(t *testing.T) {
 	}
 }
 
+func TestG3ProgressSnapshotReturnsAuthoritativeState(t *testing.T) {
+	p, s, player := openG3Store(t)
+	defer p.Pool.Close()
+	ctx := context.Background()
+	lease, err := s.AcquireSession(ctx, player, "room-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte(`{"item":"coin","amount":1}`)
+	if _, err = s.CommitProgress(ctx, domain.ProgressCommit{PlayerID: player, RoomID: "room-a", FencingToken: lease.FencingToken, OperationID: "snapshot-op", Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := s.GetProgressSnapshot(ctx, player)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.PlayerID != player || snapshot.Revision != 1 || snapshot.Inventory["coin"] != 1 {
+		t.Fatalf("unexpected progress snapshot: %#v", snapshot)
+	}
+	if snapshot.Equipment == nil || snapshot.Unlocks == nil {
+		t.Fatalf("snapshot must include empty equipment/unlocks: %#v", snapshot)
+	}
+}
+
 func TestG3ProgressOperationIsIdempotentAndRejectsPayloadChange(t *testing.T) {
 	p, s, player := openG3Store(t)
 	defer p.Pool.Close()

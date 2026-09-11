@@ -81,7 +81,11 @@ func run() error {
 	roomPort := udp.LocalAddr().(*net.UDPAddr).Port
 	udp.Close()
 	base := fmt.Sprintf("http://127.0.0.1:%d", port)
-	env := append(os.Environ(), "TEST_DB_SCHEMA="+dbSchema, "ALLOW_LOOPBACK_HTTP=1", "G0_LOOPBACK_TEST=1", "G0_BACKEND_URL="+base, fmt.Sprintf("BACKEND_PORT=%d", port), fmt.Sprintf("ROOM_PORT=%d", roomPort), "ROOM_ID=g0-room", "ROOM_GENERATION=1", "G0_TEST_PASSWORD=g1-local-test-password", "G0_PASSWORD=g1-local-test-password")
+	preset := os.Getenv("ROOM_PRESET")
+	if preset == "" {
+		preset = "exploration"
+	}
+	env := append(os.Environ(), "ROOM_PRESET="+preset, "TEST_DB_SCHEMA="+dbSchema, "ALLOW_LOOPBACK_HTTP=1", "G0_LOOPBACK_TEST=1", "G0_BACKEND_URL="+base, fmt.Sprintf("BACKEND_PORT=%d", port), fmt.Sprintf("ROOM_PORT=%d", roomPort), "ROOM_ID=g0-room", "ROOM_GENERATION=1", "G0_TEST_PASSWORD=g1-local-test-password", "G0_PASSWORD=g1-local-test-password")
 	for _, user := range []string{"g1-a", "g1-b"} {
 		cmd := exec.CommandContext(ctx, bin, "seed", user)
 		cmd.Env = env
@@ -154,8 +158,34 @@ func run() error {
 	if err = p.Pool.QueryRow(ctx, "select host,port,protocol_version,gameplay_content_hash,resolved_config_hash,capacity,generation,status from room where room_id='g0-room'").Scan(&host, &actualPort, &protocol, &content, &config, &capacity, &generation, &status); err != nil {
 		return err
 	}
-	if host != "127.0.0.1" || actualPort != roomPort || protocol != 1 || content != "g0-empty-v1" || config != usecase.ConfigHash() || capacity != 8 || generation != 1 || status != "ready" {
+	expectedContent := "g0-empty-v1"
+	expectedConfig := usecase.ConfigHash()
+	if preset == "coop_combat" {
+		expectedContent = "g4-coop-combat-v1"
+		expectedConfig = usecase.ConfigHashFor("coop_combat", "g4-coop-combat-v1")
+	}
+	if host != "127.0.0.1" || actualPort != roomPort || protocol != 1 || content != expectedContent || config != expectedConfig || capacity != 8 || generation != 1 || status != "ready" {
 		return fmt.Errorf("registered fields mismatch")
+	}
+	if os.Getenv("G1_COMBAT_DAMAGE") == "1" {
+		a, ad, err := start("A", []string{"godot", "--headless", "--path", filepath.Join(root, "3D_App"), "--script", "res://Tests/Godot/g1_combat_damage_driver.gd"}, "G0_USERNAME=g1-a", "G1_CLIENT_ROLE=A", "G3_INTEGRATION=0")
+		if err != nil {
+			return err
+		}
+		defer a.Process.Kill()
+		if err = waitLog("A", "G1_COMBAT_DAMAGE_PASS"); err != nil {
+			return err
+		}
+		select {
+		case err := <-ad:
+			if err != nil {
+				return fmt.Errorf("client A: %w", err)
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		fmt.Println("G1_COMBAT_DAMAGE_INTEGRATION_PASS")
+		return nil
 	}
 	if os.Getenv("G1_RECONNECT") == "1" {
 		a, ad, err := start("A", []string{"godot", "--headless", "--path", filepath.Join(root, "3D_App"), "--script", "res://Tests/Godot/g1_reconnect_driver.gd"}, "G0_USERNAME=g1-a", "G1_CLIENT_ROLE=A", "G3_INTEGRATION=0")

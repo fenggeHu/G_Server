@@ -50,6 +50,7 @@ func (f *fakeStore) QueryProgress(context.Context, domain.ProgressQuery) (domain
 func (f *fakeStore) GetProgressSnapshot(context.Context, string) (domain.ProgressSnapshot, error) {
 	return domain.ProgressSnapshot{}, nil
 }
+func (f *fakeStore) CommitEquipment(context.Context, domain.EquipmentCommit) (domain.ProgressSnapshot, error) { return domain.ProgressSnapshot{}, nil }
 func TestConfigHashStableAndTicketBindsPlayer(t *testing.T) {
 	f := &fakeStore{}
 	s := &Service{Store: f}

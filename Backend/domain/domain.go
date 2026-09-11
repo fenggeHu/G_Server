@@ -73,6 +73,16 @@ type ProgressCommit struct {
 	OperationID      string `json:"operation_id"`
 	Payload          []byte `json:"payload"`
 }
+type EquipmentCommit struct {
+	PlayerID string `json:"player_id"`
+	RoomID string `json:"room_id"`
+	FencingToken int64 `json:"fencing_token"`
+	ExpectedRevision int64 `json:"expected_revision"`
+	OperationID string `json:"operation_id"`
+	Slot string `json:"slot"`
+	ItemID string `json:"item_id"`
+	Equipped bool `json:"equipped"`
+}
 type OperationResult struct {
 	OperationID string `json:"operation_id"`
 	Status      string `json:"status"`

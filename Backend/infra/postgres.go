@@ -154,6 +154,30 @@ func (p *PG) GetProgressSnapshot(c context.Context, playerID string) (domain.Pro
 	}
 	return snapshot, nil
 }
+
+func (p *PG) CommitEquipment(c context.Context, in domain.EquipmentCommit) (domain.ProgressSnapshot, error) {
+	if in.PlayerID == "" || in.RoomID == "" || in.Slot == "" || len(in.Slot) > 32 || len(in.ItemID) > 128 || in.OperationID == "" || in.FencingToken < 1 {
+		return domain.ProgressSnapshot{}, fmt.Errorf("invalid equipment request")
+	}
+	tx, err := p.Pool.Begin(c)
+	if err != nil { return domain.ProgressSnapshot{}, err }
+	defer tx.Rollback(c)
+	var revision int64
+	var equipmentRaw, inventoryRaw, unlocksRaw []byte
+	if in.Equipped {
+		err = tx.QueryRow(c, `update player_progress p set revision=p.revision+1,equipment=jsonb_set(p.equipment,array[$5],to_jsonb($6::text),true) from active_player_session s where p.player_id=$1 and s.player_id=p.player_id and s.room_id=$2 and s.fencing_token=$3 and s.lease_expires_at>now() and p.revision=$4 returning p.revision,p.equipment,p.inventory,p.unlocks`, in.PlayerID,in.RoomID,in.FencingToken,in.ExpectedRevision,in.Slot,in.ItemID).Scan(&revision,&equipmentRaw,&inventoryRaw,&unlocksRaw)
+	} else {
+		err = tx.QueryRow(c, `update player_progress p set revision=p.revision+1,equipment=p.equipment-$5 from active_player_session s where p.player_id=$1 and s.player_id=p.player_id and s.room_id=$2 and s.fencing_token=$3 and s.lease_expires_at>now() and p.revision=$4 returning p.revision,p.equipment,p.inventory,p.unlocks`, in.PlayerID,in.RoomID,in.FencingToken,in.ExpectedRevision,in.Slot).Scan(&revision,&equipmentRaw,&inventoryRaw,&unlocksRaw)
+	}
+	if err != nil { return domain.ProgressSnapshot{}, err }
+	var out domain.ProgressSnapshot
+	out.PlayerID, out.Revision = in.PlayerID, revision
+	if err=json.Unmarshal(equipmentRaw,&out.Equipment); err != nil { return out,err }
+	if err=json.Unmarshal(inventoryRaw,&out.Inventory); err != nil { return out,err }
+	if err=json.Unmarshal(unlocksRaw,&out.Unlocks); err != nil { return out,err }
+	if err=tx.Commit(c); err != nil { return out,err }
+	return out,nil
+}
 func (p *PG) CommitProgress(c context.Context, in domain.ProgressCommit) (domain.OperationResult, error) {
 	h := domainHash(string(in.Payload))
 	var pickup struct {

@@ -81,6 +81,18 @@ func TestG3ProgressSnapshotReturnsAuthoritativeState(t *testing.T) {
 	}
 }
 
+func TestG3EquipmentCommitUpdatesSnapshot(t *testing.T) {
+	p, s, player := openG3Store(t)
+	defer p.Pool.Close()
+	ctx := context.Background()
+	lease, err := s.AcquireSession(ctx, player, "room-a")
+	if err != nil { t.Fatal(err) }
+	equipped, err := s.CommitEquipment(ctx, domain.EquipmentCommit{PlayerID: player, RoomID: "room-a", FencingToken: lease.FencingToken, ExpectedRevision: 0, OperationID: "equip-1", Slot: "weapon", ItemID: "sword", Equipped: true})
+	if err != nil || equipped.Equipment["weapon"] != "sword" || equipped.Revision != 1 { t.Fatalf("equip snapshot=%#v err=%v", equipped, err) }
+	unequipped, err := s.CommitEquipment(ctx, domain.EquipmentCommit{PlayerID: player, RoomID: "room-a", FencingToken: lease.FencingToken, ExpectedRevision: 1, OperationID: "unequip-1", Slot: "weapon", Equipped: false})
+	if err != nil || len(unequipped.Equipment) != 0 || unequipped.Revision != 2 { t.Fatalf("unequip snapshot=%#v err=%v", unequipped, err) }
+}
+
 func TestG3ProgressOperationIsIdempotentAndRejectsPayloadChange(t *testing.T) {
 	p, s, player := openG3Store(t)
 	defer p.Pool.Close()

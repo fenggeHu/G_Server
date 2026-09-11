@@ -319,6 +319,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			response(w, 200, out)
 			return
 		}
+		if path == "/v1/internal/progress/equipment" {
+			var x domain.EquipmentCommit
+			if !decode(b, &x) || !text(x.PlayerID, 64) || !text(x.RoomID, 128) || !text(x.OperationID, 128) || !text(x.Slot, 32) || !text(x.ItemID, 128) || x.FencingToken < 1 || x.ExpectedRevision < 0 {
+				failure(w, 422, "invalid request")
+				return
+			}
+			out, e := h.Service.CommitEquipment(ctx, x)
+			if e != nil { dbError(w, e); return }
+			response(w, 200, out)
+			return
+		}
 	}
 	if strings.HasPrefix(path, "/v1/internal/rooms/") {
 		if !serviceAuthorized(r.Header.Get("Authorization"), h.Service.ServiceToken) {

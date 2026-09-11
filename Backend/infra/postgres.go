@@ -15,6 +15,13 @@ import (
 	"strings"
 )
 
+// ProgressSchemaVersion 是当前服务器支持的 player_progress 数据版本。
+const ProgressSchemaVersion = 2
+
+// ErrProgressSchemaUnsupported 表示库中存在高于服务器支持的进度版本，
+// 旧服务器不得静默处理新数据。
+var ErrProgressSchemaUnsupported = errors.New("unsupported progress schema version")
+
 type PG struct {
 	Pool   *pgxpool.Pool
 	Schema string
@@ -144,6 +151,9 @@ func (p *PG) GetProgressSnapshot(c context.Context, playerID string) (domain.Pro
 	err := p.Pool.QueryRow(c, `select player_id,schema_version,revision,inventory,equipment,unlocks,quests from player_progress where player_id=$1`, playerID).Scan(&snapshot.PlayerID, &snapshot.SchemaVersion, &snapshot.Revision, &inventoryRaw, &equipmentRaw, &unlocksRaw, &questsRaw)
 	if err != nil {
 		return snapshot, err
+	}
+	if snapshot.SchemaVersion > ProgressSchemaVersion {
+		return snapshot, fmt.Errorf("%w: %d", ErrProgressSchemaUnsupported, snapshot.SchemaVersion)
 	}
 	if err = json.Unmarshal(inventoryRaw, &snapshot.Inventory); err != nil {
 		return snapshot, err
@@ -449,8 +459,7 @@ func (p *PG) ReleaseReservation(c context.Context, room, player string) error {
 	}
 	return tx.Commit(c)
 }
-func migrationsDir() string {
-	path := os.Getenv("MIGRATIONS_DIR")
+func migrationsDir() string {	path := os.Getenv("MIGRATIONS_DIR")
 	if path == "" {
 		path = "migrations"
 	}
@@ -573,4 +582,22 @@ func Rollback(ctx context.Context, p *PG, steps int) ([]string, error) {
 		return rolled, e
 	}
 	return rolled, nil
+}
+
+// MigrateProgressSchema 将所有 player_progress 行显式升级到当前数据版本。
+// 仅做版本标记迁移（v1 -> v2 为新增 quests 列，已有列默认值补齐）；
+// 若发现高于服务器支持的版本则返回 ErrProgressSchemaUnsupported，
+// 防止旧服务器静默处理新数据。
+func MigrateProgressSchema(ctx context.Context, p *PG) error {
+	var maxVersion int
+	if e := p.Pool.QueryRow(ctx, "select coalesce(max(schema_version),0) from player_progress").Scan(&maxVersion); e != nil {
+		return e
+	}
+	if maxVersion > ProgressSchemaVersion {
+		return fmt.Errorf("%w: found %d, supported %d", ErrProgressSchemaUnsupported, maxVersion, ProgressSchemaVersion)
+	}
+	if _, e := p.Pool.Exec(ctx, "update player_progress set schema_version=$1 where schema_version < $1", ProgressSchemaVersion); e != nil {
+		return e
+	}
+	return nil
 }

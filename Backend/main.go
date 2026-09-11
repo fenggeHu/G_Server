@@ -47,6 +47,9 @@ func run() error {
 		if infra.Migrate(ctx, p) != nil {
 			return errors.New("migration failed")
 		}
+		if infra.MigrateProgressSchema(ctx, p) != nil {
+			return errors.New("progress schema migration failed")
+		}
 		fmt.Println("migration complete")
 		return nil
 	}

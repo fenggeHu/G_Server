@@ -22,6 +22,7 @@ var attack_seen: Dictionary = {}
 var attack_last: Dictionary = {}
 var player_health: Dictionary = {}
 var progress_snapshots: Dictionary = {}
+var quest_snapshots: Dictionary = {}
 var enemy_attack_last: Dictionary = {}
 const ENEMY_ATTACK_RANGE_SQ := 9.0
 const ENEMY_ATTACK_DAMAGE := 10
@@ -130,6 +131,7 @@ func _remove_peer(id: int) -> void:
 	entities.erase(id)
 	player_health.erase(id)
 	progress_snapshots.erase(id)
+	quest_snapshots.erase(id)
 	enemy_attack_last.erase(id)
 	var players := get_node_or_null("Players")
 	if was_authenticated and players:
@@ -194,6 +196,11 @@ func _authenticate(id: int, data: PackedByteArray) -> void:
 		_reject(id)
 		return
 	progress_snapshots[id] = snapshot_data
+	var quest_data := await _room_post("/v1/internal/progress/quests", {"player_id": result.player_id})
+	if quest_data.size() > 3 and quest_data[0] == HTTPRequest.RESULT_SUCCESS and quest_data[1] == 200:
+		var quest_json := JSON.new()
+		if quest_json.parse(quest_data[3].get_string_from_utf8()) == OK and quest_json.data is Dictionary:
+			quest_snapshots[id] = quest_json.data
 	player_health[id] = {"hp": 100, "max_hp": 100, "revision": 1}
 	var players := get_node_or_null("Players")
 	if not players:
@@ -203,6 +210,8 @@ func _authenticate(id: int, data: PackedByteArray) -> void:
 	multiplayer.send_auth(id, JSON.stringify({"status": "authenticated", "room_id": room_id, "resolved_config_hash": POLICY.config_hash(), "player_id": result.player_id}).to_utf8_buffer())
 	multiplayer.complete_auth(id)
 	progress_snapshot.rpc_id(id, result.player_id, snapshot_data)
+	if quest_snapshots.has(id):
+		quest_snapshot.rpc_id(id, result.player_id, quest_snapshots[id])
 
 func _safe_name(value: String) -> String:
 	var result := "player_"
@@ -370,3 +379,4 @@ func _apply_attack(now: int) -> void:
 @rpc("authority", "call_remote", "reliable") func entity_spawned(_entity_id: String, _revision: int) -> void: pass
 @rpc("authority", "call_remote", "reliable") func player_health_changed(_entity_id: String, _hp: int, _max_hp: int, _revision: int) -> void: pass
 @rpc("authority", "call_remote", "reliable") func progress_snapshot(_player_id: String, _snapshot: Dictionary) -> void: pass
+@rpc("authority", "call_remote", "reliable") func quest_snapshot(_player_id: String, _snapshot: Dictionary) -> void: pass

@@ -13,6 +13,21 @@ import (
 )
 
 var ErrUnauthorized = errors.New("unauthorized")
+var ErrRejected = errors.New("rejected")
+
+// 服务器拥有的任务目标需求；客户端不能自定义 required。
+var questObjectives = map[string]map[string]int{
+	"starter_collect": {"collect_coin": 2},
+}
+
+func QuestRequirement(questID, objectiveID string) (int, bool) {
+	objectives, ok := questObjectives[questID]
+	if !ok {
+		return 0, false
+	}
+	required, ok := objectives[objectiveID]
+	return required, ok
+}
 
 type Store interface {
 	FindPlayer(context.Context, string) (domain.Player, error)
@@ -125,6 +140,7 @@ type ProgressStore interface {
 	GetProgressSnapshot(context.Context, string) (domain.ProgressSnapshot, error)
 	CommitEquipment(context.Context, domain.EquipmentCommit) (domain.ProgressSnapshot, error)
 	GetQuestSnapshot(context.Context, string) (domain.QuestSnapshot, error)
+	CommitQuest(context.Context, domain.QuestCommit) (domain.ProgressSnapshot, error)
 }
 
 func (s *Service) RenewSession(ctx context.Context, x domain.SessionLease) (domain.SessionLease, error) {
@@ -147,6 +163,15 @@ func (s *Service) CommitEquipment(ctx context.Context, x domain.EquipmentCommit)
 
 func (s *Service) GetQuestSnapshot(ctx context.Context, playerID string) (domain.QuestSnapshot, error) {
 	return s.Store.GetQuestSnapshot(ctx, playerID)
+}
+
+func (s *Service) CommitQuest(ctx context.Context, in domain.QuestCommit) (domain.ProgressSnapshot, error) {
+	required, ok := QuestRequirement(in.QuestID, in.ObjectiveID)
+	if !ok {
+		return domain.ProgressSnapshot{}, ErrRejected
+	}
+	in.Required = required
+	return s.Store.CommitQuest(ctx, in)
 }
 
 func (s *Service) AcquireSession(ctx context.Context, playerID, roomID string) (domain.SessionLease, error) {

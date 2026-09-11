@@ -143,7 +143,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		failure(w, 400, "https required")
 		return
 	}
-	limits := map[string]int{"/v1/auth/login": 5, "/v1/auth/logout": 30, "/v1/tickets": 30, "/v1/rooms/allocate": 30, "/v1/internal/tickets/redeem": 60, "/v1/internal/rooms/register": 60, "/v1/internal/rooms/heartbeat": 120, "/v1/internal/rooms/release": 60, "/v1/internal/progress/acquire": 60, "/v1/internal/progress/renew": 120, "/v1/internal/progress/release": 60, "/v1/internal/progress/commit": 120, "/v1/internal/progress/query": 120, "/v1/internal/progress/snapshot": 60, "/v1/internal/progress/equipment": 60, "/v1/internal/progress/quests": 60}
+	limits := map[string]int{"/v1/auth/login": 5, "/v1/auth/logout": 30, "/v1/tickets": 30, "/v1/rooms/allocate": 30, "/v1/internal/tickets/redeem": 60, "/v1/internal/rooms/register": 60, "/v1/internal/rooms/heartbeat": 120, "/v1/internal/rooms/release": 60, "/v1/internal/progress/acquire": 60, "/v1/internal/progress/renew": 120, "/v1/internal/progress/release": 60, "/v1/internal/progress/commit": 120, "/v1/internal/progress/query": 120, "/v1/internal/progress/snapshot": 60, "/v1/internal/progress/equipment": 60, "/v1/internal/progress/quests": 60, "/v1/internal/progress/quest": 60}
 	if n := limits[r.URL.Path]; n > 0 && !h.slot(r.URL.Path+"|"+ip, n) {
 		w.Header().Set("Retry-After", "60")
 		failure(w, 429, "rate limited")
@@ -345,6 +345,33 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if !decode(b, &x) || !text(x.PlayerID, 64) { failure(w, 422, "invalid request"); return }
 			out, e := h.Service.GetQuestSnapshot(ctx, x.PlayerID)
 			if e != nil { dbError(w, e); return }
+			response(w, 200, out)
+			return
+		}
+		if path == "/v1/internal/progress/quest" {
+			var x struct {
+				PlayerID         string  `json:"player_id"`
+				RoomID           string  `json:"room_id"`
+				FencingToken     float64 `json:"fencing_token"`
+				ExpectedRevision float64 `json:"expected_revision"`
+				OperationID      string  `json:"operation_id"`
+				QuestID          string  `json:"quest_id"`
+				ObjectiveID      string  `json:"objective_id"`
+				Amount           float64 `json:"amount"`
+			}
+			if !decode(b, &x) || !text(x.PlayerID, 64) || !text(x.RoomID, 128) || !text(x.OperationID, 128) || !text(x.QuestID, 64) || !text(x.ObjectiveID, 64) || !integer(x.FencingToken) || !integer(x.ExpectedRevision) || !integer(x.Amount) || x.FencingToken < 1 || x.ExpectedRevision < 0 || x.Amount < 1 {
+				failure(w, 422, "invalid request")
+				return
+			}
+			out, e := h.Service.CommitQuest(ctx, domain.QuestCommit{PlayerID: x.PlayerID, RoomID: x.RoomID, FencingToken: int64(x.FencingToken), ExpectedRevision: int64(x.ExpectedRevision), OperationID: x.OperationID, QuestID: x.QuestID, ObjectiveID: x.ObjectiveID, Amount: int(x.Amount)})
+			if e != nil {
+				if errors.Is(e, usecase.ErrRejected) {
+					failure(w, 422, "rejected")
+					return
+				}
+				dbError(w, e)
+				return
+			}
 			response(w, 200, out)
 			return
 		}

@@ -120,6 +120,34 @@ func TestG3SchemaMigrationIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestG3QuestCommitAdvancesProgress(t *testing.T) {
+	p, s, player := openG3Store(t)
+	defer p.Pool.Close()
+	ctx := context.Background()
+	lease, err := s.AcquireSession(ctx, player, "room-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := domain.QuestCommit{PlayerID: player, RoomID: "room-a", FencingToken: lease.FencingToken, ExpectedRevision: 0, OperationID: "quest-1", QuestID: "starter_collect", ObjectiveID: "collect_coin", Amount: 1}
+	first, err := s.CommitQuest(ctx, step)
+	if err != nil || len(first.Quests) != 1 || first.Quests[0].Objectives[0].Progress != 1 || first.Quests[0].Objectives[0].Required != 2 || first.Quests[0].Completed {
+		t.Fatalf("quest step1=%#v err=%v", first, err)
+	}
+	repeat, err := s.CommitQuest(ctx, step)
+	if err != nil || repeat.Revision != first.Revision {
+		t.Fatalf("idempotent quest=%#v err=%v", repeat, err)
+	}
+	step.ExpectedRevision = first.Revision
+	step.OperationID = "quest-2"
+	second, err := s.CommitQuest(ctx, step)
+	if err != nil || !second.Quests[0].Completed || second.Quests[0].Objectives[0].Progress != 2 {
+		t.Fatalf("quest step2=%#v err=%v", second, err)
+	}
+	if _, err = s.CommitQuest(ctx, domain.QuestCommit{PlayerID: player, RoomID: "room-a", FencingToken: lease.FencingToken, ExpectedRevision: second.Revision, OperationID: "quest-3", QuestID: "missing", ObjectiveID: "x", Amount: 1}); err == nil {
+		t.Fatal("unknown quest accepted")
+	}
+}
+
 func TestG3QuestSnapshotReturnsUnlocks(t *testing.T) {	p, s, player := openG3Store(t)
 	defer p.Pool.Close()
 	ctx := context.Background()

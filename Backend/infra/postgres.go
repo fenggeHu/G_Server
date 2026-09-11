@@ -140,8 +140,8 @@ func (p *PG) QueryProgress(c context.Context, q domain.ProgressQuery) (domain.Op
 
 func (p *PG) GetProgressSnapshot(c context.Context, playerID string) (domain.ProgressSnapshot, error) {
 	var snapshot domain.ProgressSnapshot
-	var inventoryRaw, equipmentRaw, unlocksRaw []byte
-	err := p.Pool.QueryRow(c, `select player_id,schema_version,revision,inventory,equipment,unlocks from player_progress where player_id=$1`, playerID).Scan(&snapshot.PlayerID, &snapshot.SchemaVersion, &snapshot.Revision, &inventoryRaw, &equipmentRaw, &unlocksRaw)
+	var inventoryRaw, equipmentRaw, unlocksRaw, questsRaw []byte
+	err := p.Pool.QueryRow(c, `select player_id,schema_version,revision,inventory,equipment,unlocks,quests from player_progress where player_id=$1`, playerID).Scan(&snapshot.PlayerID, &snapshot.SchemaVersion, &snapshot.Revision, &inventoryRaw, &equipmentRaw, &unlocksRaw, &questsRaw)
 	if err != nil {
 		return snapshot, err
 	}
@@ -154,6 +154,9 @@ func (p *PG) GetProgressSnapshot(c context.Context, playerID string) (domain.Pro
 	if err = json.Unmarshal(unlocksRaw, &snapshot.Unlocks); err != nil {
 		return snapshot, err
 	}
+	if err = json.Unmarshal(questsRaw, &snapshot.Quests); err != nil {
+		return snapshot, err
+	}
 	return snapshot, nil
 }
 
@@ -164,6 +167,97 @@ func (p *PG) GetQuestSnapshot(c context.Context, playerID string) (domain.QuestS
 	if err != nil { return snapshot, err }
 	if err = json.Unmarshal(raw, &snapshot.Unlocks); err != nil { return snapshot, err }
 	return snapshot, nil
+}
+
+func (p *PG) CommitQuest(c context.Context, in domain.QuestCommit) (domain.ProgressSnapshot, error) {
+	if in.PlayerID == "" || in.RoomID == "" || in.QuestID == "" || in.ObjectiveID == "" || in.Required < 1 || in.Amount < 1 || in.Amount > in.Required || in.OperationID == "" || in.FencingToken < 1 {
+		return domain.ProgressSnapshot{}, fmt.Errorf("invalid quest request")
+	}
+	tx, err := p.Pool.Begin(c)
+	if err != nil {
+		return domain.ProgressSnapshot{}, err
+	}
+	defer tx.Rollback(c)
+	var existingRaw []byte
+	var existingRevision int64
+	err = tx.QueryRow(c, `select result,revision from progress_operation where player_id=$1 and operation_id=$2`, in.PlayerID, in.OperationID).Scan(&existingRaw, &existingRevision)
+	if err == nil {
+		var existing map[string]any
+		if json.Unmarshal(existingRaw, &existing) != nil {
+			return domain.ProgressSnapshot{}, fmt.Errorf("quest operation conflict")
+		}
+		amount, ok := existing["amount"].(float64)
+		if !ok || existing["quest_id"] != in.QuestID || existing["objective_id"] != in.ObjectiveID || int(amount) != in.Amount {
+			return domain.ProgressSnapshot{}, fmt.Errorf("quest operation conflict")
+		}
+		if err = tx.Commit(c); err != nil {
+			return domain.ProgressSnapshot{}, err
+		}
+		return p.GetProgressSnapshot(c, in.PlayerID)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return domain.ProgressSnapshot{}, err
+	}
+	var revision int64
+	var questsRaw []byte
+	if err = tx.QueryRow(c, `select revision,quests from player_progress where player_id=$1 for update`, in.PlayerID).Scan(&revision, &questsRaw); err != nil {
+		return domain.ProgressSnapshot{}, err
+	}
+	var quests []domain.QuestState
+	if err = json.Unmarshal(questsRaw, &quests); err != nil {
+		return domain.ProgressSnapshot{}, err
+	}
+	questIndex := -1
+	for i := range quests {
+		if quests[i].QuestID == in.QuestID {
+			questIndex = i
+			break
+		}
+	}
+	if questIndex < 0 {
+		quests = append(quests, domain.QuestState{QuestID: in.QuestID})
+		questIndex = len(quests) - 1
+	}
+	objectiveIndex := -1
+	for i := range quests[questIndex].Objectives {
+		if quests[questIndex].Objectives[i].ObjectiveID == in.ObjectiveID {
+			objectiveIndex = i
+			break
+		}
+	}
+	if objectiveIndex < 0 {
+		quests[questIndex].Objectives = append(quests[questIndex].Objectives, domain.QuestObjective{ObjectiveID: in.ObjectiveID, Required: in.Required})
+		objectiveIndex = len(quests[questIndex].Objectives) - 1
+	}
+	if quests[questIndex].Objectives[objectiveIndex].Required != in.Required {
+		return domain.ProgressSnapshot{}, fmt.Errorf("quest requirement mismatch")
+	}
+	objective := &quests[questIndex].Objectives[objectiveIndex]
+	objective.Progress += in.Amount
+	if objective.Progress > objective.Required {
+		objective.Progress = objective.Required
+	}
+	quests[questIndex].Completed = true
+	for _, candidate := range quests[questIndex].Objectives {
+		if candidate.Progress < candidate.Required {
+			quests[questIndex].Completed = false
+			break
+		}
+	}
+	quests[questIndex].Revision = revision + 1
+	updated, _ := json.Marshal(quests)
+	var newRevision int64
+	if err = tx.QueryRow(c, `update player_progress p set revision=p.revision+1,quests=$5 from active_player_session s where p.player_id=$1 and s.player_id=p.player_id and s.room_id=$2 and s.fencing_token=$3 and s.lease_expires_at>now() and p.revision=$4 returning p.revision`, in.PlayerID, in.RoomID, in.FencingToken, in.ExpectedRevision, updated).Scan(&newRevision); err != nil {
+		return domain.ProgressSnapshot{}, err
+	}
+	payload, _ := json.Marshal(in)
+	if _, err = tx.Exec(c, `insert into progress_operation(player_id,operation_id,payload_hash,status,result,revision) values($1,$2,$3,'succeeded',$4,$5)`, in.PlayerID, in.OperationID, domainHash(string(payload)), payload, newRevision); err != nil {
+		return domain.ProgressSnapshot{}, err
+	}
+	if err = tx.Commit(c); err != nil {
+		return domain.ProgressSnapshot{}, err
+	}
+	return p.GetProgressSnapshot(c, in.PlayerID)
 }
 
 func (p *PG) CommitEquipment(c context.Context, in domain.EquipmentCommit) (domain.ProgressSnapshot, error) {

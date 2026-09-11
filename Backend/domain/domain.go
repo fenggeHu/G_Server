@@ -54,6 +54,32 @@ type ProgressSnapshot struct {
 	Inventory     map[string]int    `json:"inventory"`
 	Equipment     map[string]string `json:"equipment"`
 	Unlocks       []string          `json:"unlocks"`
+	Quests        []QuestState      `json:"quests"`
+}
+
+type QuestObjective struct {
+	ObjectiveID string `json:"objective_id"`
+	Progress    int    `json:"progress"`
+	Required    int    `json:"required"`
+}
+
+type QuestState struct {
+	QuestID    string           `json:"quest_id"`
+	Revision   int64            `json:"revision"`
+	Objectives []QuestObjective `json:"objectives"`
+	Completed  bool             `json:"completed"`
+}
+
+type QuestCommit struct {
+	PlayerID         string `json:"player_id"`
+	RoomID           string `json:"room_id"`
+	FencingToken     int64  `json:"fencing_token"`
+	ExpectedRevision int64  `json:"expected_revision"`
+	OperationID      string `json:"operation_id"`
+	QuestID          string `json:"quest_id"`
+	ObjectiveID      string `json:"objective_id"`
+	Required         int    `json:"required"`
+	Amount           int    `json:"amount"`
 }
 
 type QuestSnapshot struct {

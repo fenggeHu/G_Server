@@ -304,11 +304,20 @@ func _authenticate(id: int, data: PackedByteArray) -> void:
 	var players := get_node_or_null("Players")
 	if not players:
 		players = Node.new(); players.name = "Players"; add_child(players)
-	var player := Movement.new(); player.name = _safe_name(result.player_id); player.set_meta("player_id", result.player_id); player.set_meta("connection_id", id); players.add_child(player)
+	var player := _create_player(result.player_id, id)
+	players.add_child(player)
 	entities[id] = player
 	var reconnect_token := _issue_reconnect_token(result.player_id)
 	multiplayer.send_auth(id, JSON.stringify({"status": "authenticated", "room_id": room_id, "resolved_config_hash": POLICY.config_hash(), "player_id": result.player_id, "reconnect_token": reconnect_token}).to_utf8_buffer())
 	multiplayer.complete_auth(id)
+
+func _create_player(player_id: String, connection_id: int) -> Node:
+	var player: Node = Movement.new()
+	player.name = _safe_name(player_id)
+	player.set_meta("player_id", player_id)
+	player.set_meta("connection_id", connection_id)
+	player.set_map_authority(map_authority)
+	return player
 
 func _safe_name(value: String) -> String:
 	var result := "player_"

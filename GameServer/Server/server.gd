@@ -191,7 +191,7 @@ func _issue_reconnect_token(player_id: String) -> String:
 
 func _reconnect(id: int, body: Dictionary) -> void:
 	var token := str(body.get("reconnect_token", ""))
-	if token.length() != P.RECONNECT_TOKEN_LENGTH or body.get("room_id") != room_id or body.get("protocol_version") != P.PROTOCOL_VERSION or body.get("gameplay_content_hash") != content_hash:
+	if token.length() != P.RECONNECT_TOKEN_LENGTH or body.get("room_id") != room_id or body.get("protocol_version") != P.PROTOCOL_VERSION or body.get("gameplay_content_hash") != content_hash or body.get("map_id") != map_id or body.get("map_content_version") != map_content_version or body.get("map_authority_version") != map_authority_version:
 		_reject(id)
 		return
 	var player_id := ""
@@ -216,7 +216,7 @@ func _reconnect(id: int, body: Dictionary) -> void:
 	if saved.quest_snapshot != null: quest_snapshots[id] = saved.quest_snapshot
 	if saved.health != null: player_health[id] = saved.health
 	var new_token := _issue_reconnect_token(player_id)
-	multiplayer.send_auth(id, JSON.stringify({"status": "authenticated", "room_id": room_id, "resolved_config_hash": POLICY.config_hash(), "player_id": player_id, "reconnect_token": new_token}).to_utf8_buffer())
+	multiplayer.send_auth(id, JSON.stringify({"status": "authenticated", "room_id": room_id, "resolved_config_hash": POLICY.config_hash(), "player_id": player_id, "map_id": map_id, "map_content_version": map_content_version, "map_authority_version": map_authority_version, "reconnect_token": new_token}).to_utf8_buffer())
 	multiplayer.complete_auth(id)
 	print("G1 player_reconnected player_id=" + player_id)
 
@@ -314,7 +314,7 @@ func _authenticate(id: int, data: PackedByteArray) -> void:
 	players.add_child(player)
 	entities[id] = player
 	var reconnect_token := _issue_reconnect_token(result.player_id)
-	multiplayer.send_auth(id, JSON.stringify({"status": "authenticated", "room_id": room_id, "resolved_config_hash": POLICY.config_hash(), "player_id": result.player_id, "reconnect_token": reconnect_token}).to_utf8_buffer())
+	multiplayer.send_auth(id, JSON.stringify({"status": "authenticated", "room_id": room_id, "resolved_config_hash": POLICY.config_hash(), "player_id": result.player_id, "map_id": map_id, "map_content_version": map_content_version, "map_authority_version": map_authority_version, "reconnect_token": reconnect_token}).to_utf8_buffer())
 	multiplayer.complete_auth(id)
 
 func _create_player(player_id: String, connection_id: int) -> Node:

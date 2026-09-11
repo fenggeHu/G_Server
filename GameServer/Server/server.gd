@@ -36,6 +36,9 @@ var enemy_node: Node3D
 var preset_id := "exploration"
 var content_hash := P.CONTENT_HASH
 var map_authority = null
+var map_id := "starter_valley"
+var map_content_version := "starter_valley-0"
+var map_authority_version := "starter_valley-authority-0"
 
 func _ready() -> void:
 	Engine.physics_ticks_per_second = 60
@@ -46,6 +49,9 @@ func _start() -> void:
 	if preset_id.is_empty(): preset_id = P.DEFAULT_PRESET
 	combat_enabled = preset_id == "coop_combat"
 	content_hash = P.content_hash_for(preset_id)
+	map_id = OS.get_environment("ROOM_MAP_ID") if not OS.get_environment("ROOM_MAP_ID").is_empty() else "starter_valley"
+	map_content_version = OS.get_environment("ROOM_MAP_CONTENT_VERSION") if not OS.get_environment("ROOM_MAP_CONTENT_VERSION").is_empty() else "starter_valley-0"
+	map_authority_version = OS.get_environment("ROOM_MAP_AUTHORITY_VERSION") if not OS.get_environment("ROOM_MAP_AUTHORITY_VERSION").is_empty() else "starter_valley-authority-0"
 	if not WorldItems.validate(pickup_entities):
 		print("G0_WORLD_ITEMS_INVALID")
 		_fatal()
@@ -53,9 +59,7 @@ func _start() -> void:
 	var authority_path := OS.get_environment("ROOM_MAP_AUTHORITY_PATH")
 	if authority_path.is_empty():
 		authority_path = "res://Content/world/starter_valley_authority.json"
-	var expected_map_id := OS.get_environment("ROOM_MAP_ID")
-	var expected_authority_version := OS.get_environment("ROOM_MAP_AUTHORITY_VERSION")
-	map_authority = MapAuthority.load_json(authority_path, expected_map_id, expected_authority_version)
+	map_authority = MapAuthority.load_json(authority_path, map_id, map_authority_version)
 	if map_authority == null:
 		_fatal()
 		return
@@ -134,7 +138,7 @@ func _room_post(path: String, body: Dictionary) -> Array:
 	return result
 
 func _register_room(port: int) -> bool:
-	var response := await _room_post("/v1/internal/rooms/register", {"room_id": room_id, "host": OS.get_environment("ROOM_HOST") if not OS.get_environment("ROOM_HOST").is_empty() else "127.0.0.1", "port": port, "protocol_version": P.PROTOCOL_VERSION, "gameplay_content_hash": content_hash, "resolved_config_hash": POLICY.config_hash(), "capacity": 8, "generation": generation, "status": "ready"})
+	var response := await _room_post("/v1/internal/rooms/register", {"room_id": room_id, "host": OS.get_environment("ROOM_HOST") if not OS.get_environment("ROOM_HOST").is_empty() else "127.0.0.1", "port": port, "protocol_version": P.PROTOCOL_VERSION, "gameplay_content_hash": content_hash, "resolved_config_hash": POLICY.config_hash(), "capacity": 8, "generation": generation, "status": "ready", "map_id": map_id, "map_content_version": map_content_version, "map_authority_version": map_authority_version})
 	if response.size() > 1 and response[1] != 200:
 		print("G0_ROOM_REGISTER_REJECTED status=" + str(response[1]))
 	return response.size() > 1 and response[0] == HTTPRequest.RESULT_SUCCESS and response[1] == 200
@@ -257,7 +261,7 @@ func _authenticate(id: int, data: PackedByteArray) -> void:
 	if body.get("reconnect_token") is String:
 		_reconnect(id, body)
 		return
-	if body.size() != 6 or not body.get("ticket") is String or body.ticket.is_empty() or body.ticket.length() > 256 or body.get("room_id") != room_id or body.get("protocol_version") != P.PROTOCOL_VERSION or body.get("gameplay_content_hash") != content_hash or body.get("resolved_config_hash") != POLICY.config_hash():
+	if body.get("ticket") is not String or body.ticket.is_empty() or body.ticket.length() > 256 or body.get("room_id") != room_id or body.get("protocol_version") != P.PROTOCOL_VERSION or body.get("gameplay_content_hash") != content_hash or body.get("resolved_config_hash") != POLICY.config_hash() or body.get("map_id") != map_id or body.get("map_content_version") != map_content_version or body.get("map_authority_version") != map_authority_version:
 		_reject(id)
 		return
 	var request_generation: int = pending[id].generation
@@ -284,7 +288,7 @@ func _authenticate(id: int, data: PackedByteArray) -> void:
 		_reject(id)
 		return
 	var result: Dictionary = parser.data
-	if not result.get("player_id") is String or result.get("room_id") != room_id or result.get("preset_id") != preset_id or result.get("resolved_config_hash") != POLICY.config_hash() or identities.values().has(result.player_id):
+	if not result.get("player_id") is String or result.get("room_id") != room_id or result.get("preset_id") != preset_id or result.get("map_id") != map_id or result.get("map_content_version") != map_content_version or result.get("map_authority_version") != map_authority_version or result.get("resolved_config_hash") != POLICY.config_hash() or identities.values().has(result.player_id):
 		_reject(id)
 		return
 	var lease := await _progress_post("acquire", {"player_id": result.player_id, "room_id": room_id})

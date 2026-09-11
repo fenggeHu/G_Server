@@ -30,6 +30,15 @@ func requireProgressVersion(version int) error {
 	return nil
 }
 
+// Lock before checking so a concurrent version change cannot race a write.
+func lockProgressVersion(ctx context.Context, tx pgx.Tx, playerID string) error {
+	var version int
+	if err := tx.QueryRow(ctx, `select schema_version from player_progress where player_id=$1 for update`, playerID).Scan(&version); err != nil {
+		return err
+	}
+	return requireProgressVersion(version)
+}
+
 type PG struct {
 	Pool   *pgxpool.Pool
 	Schema string
@@ -205,6 +214,9 @@ func (p *PG) CommitQuest(c context.Context, in domain.QuestCommit) (domain.Progr
 	}
 	defer tx.Rollback(c)
 	var existingRaw []byte
+	if err = lockProgressVersion(c, tx, in.PlayerID); err != nil {
+		return domain.ProgressSnapshot{}, err
+	}
 	var existingRevision int64
 	err = tx.QueryRow(c, `select result,revision from progress_operation where player_id=$1 and operation_id=$2`, in.PlayerID, in.OperationID).Scan(&existingRaw, &existingRevision)
 	if err == nil {
@@ -309,6 +321,9 @@ func (p *PG) CommitEquipment(c context.Context, in domain.EquipmentCommit) (doma
 	if err != nil { return domain.ProgressSnapshot{}, err }
 	defer tx.Rollback(c)
 	var existingPayload []byte
+	if err = lockProgressVersion(c, tx, in.PlayerID); err != nil {
+		return domain.ProgressSnapshot{}, err
+	}
 	var existingRevision int64
 	err = tx.QueryRow(c, `select result,revision from progress_operation where player_id=$1 and operation_id=$2`, in.PlayerID, in.OperationID).Scan(&existingPayload, &existingRevision)
 	if err == nil {
@@ -367,6 +382,9 @@ func (p *PG) CommitProgress(c context.Context, in domain.ProgressCommit) (domain
 	}
 	defer tx.Rollback(c)
 	var old domain.OperationResult
+	if e = lockProgressVersion(c, tx, in.PlayerID); e != nil {
+		return domain.OperationResult{}, e
+	}
 	var oldHash string
 	var raw []byte
 	e = tx.QueryRow(c, `select status,result,revision,payload_hash from progress_operation where player_id=$1 and operation_id=$2`, in.PlayerID, in.OperationID).Scan(&old.Status, &raw, &old.Revision, &oldHash)

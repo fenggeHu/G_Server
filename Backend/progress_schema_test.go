@@ -3,6 +3,7 @@
 package main
 
 import (
+	"aigame/server/backend/domain"
 	"aigame/server/backend/infra"
 	"context"
 	"errors"
@@ -72,6 +73,29 @@ func TestProgressSchemaVersionPolicy(t *testing.T) {
 	}
 	if _, e = p.GetQuestSnapshot(ctx, pid.String()); !errors.Is(e, infra.ErrProgressSchemaUnsupported) {
 		t.Fatalf("expected unsupported quest snapshot read, got %v", e)
+	}
+	checks := []func() error{
+		func() error {
+			_, err := p.CommitEquipment(ctx, domain.EquipmentCommit{PlayerID: pid.String(), RoomID: "schema-room", FencingToken: 1, OperationID: "future-equipment", Slot: "hand", ItemID: "coin"})
+			return err
+		},
+		func() error {
+			_, err := p.CommitQuest(ctx, domain.QuestCommit{PlayerID: pid.String(), RoomID: "schema-room", FencingToken: 1, OperationID: "future-quest", QuestID: "starter_collect", ObjectiveID: "collect_coin", Required: 2, Amount: 1})
+			return err
+		},
+		func() error {
+			_, err := p.CommitProgress(ctx, domain.ProgressCommit{PlayerID: pid.String(), RoomID: "schema-room", FencingToken: 1, OperationID: "future-pickup", Payload: []byte(`{"item":"coin","amount":1}`)})
+			return err
+		},
+	}
+	for i, check := range checks {
+		if err := check(); !errors.Is(err, infra.ErrProgressSchemaUnsupported) {
+			t.Fatalf("write %d: expected unsupported version, got %v", i, err)
+		}
+	}
+	var unchanged bool
+	if e = p.Pool.QueryRow(ctx, `select revision=0 and inventory='{}'::jsonb and equipment='{}'::jsonb and quests='[]'::jsonb and not exists(select 1 from progress_operation where player_id=$1) from player_progress where player_id=$1`, pid).Scan(&unchanged); e != nil || !unchanged {
+		t.Fatalf("rejected writes changed progress: %v", e)
 	}
 	t.Log("PROGRESS_SCHEMA_POLICY_PASS")
 }

@@ -1,6 +1,7 @@
 extends SceneTree
 
 const MapAuthority := preload("res://Server/map_authority.gd")
+const Movement := preload("res://Server/movement.gd")
 
 func _initialize() -> void:
 	var path := "user://map_authority_test.json"
@@ -30,5 +31,16 @@ func _initialize() -> void:
 		"map_id": "broken", "authority_version": "v1",
 		"boundary": {"min_x": 1.0, "max_x": -1.0},
 		"flight": {"enabled": true, "max_height": 10.0}}))
+	var movement := Movement.new()
+	movement.set_map_authority(authority)
+	movement.position = Vector3(139.9, 0.0, 0.0)
+	assert(movement.enqueue(1, Vector2(1.0, 0.0)))
+	movement.step(1)
+	assert(movement.position.x <= 140.0)
+	movement.flight_mode = true
+	movement.position.y = 28.0
+	assert(movement.enqueue(2, Vector2.ZERO))
+	movement.step(2)
+	assert(movement.position.y <= 28.0)
 	print("MAP_AUTHORITY_PASS")
 	quit(0)

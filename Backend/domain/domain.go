@@ -71,15 +71,16 @@ type QuestState struct {
 }
 
 type QuestCommit struct {
-	PlayerID         string `json:"player_id"`
-	RoomID           string `json:"room_id"`
-	FencingToken     int64  `json:"fencing_token"`
-	ExpectedRevision int64  `json:"expected_revision"`
-	OperationID      string `json:"operation_id"`
-	QuestID          string `json:"quest_id"`
-	ObjectiveID      string `json:"objective_id"`
-	Required         int    `json:"required"`
-	Amount           int    `json:"amount"`
+	PlayerID         string         `json:"player_id"`
+	RoomID           string         `json:"room_id"`
+	FencingToken     int64          `json:"fencing_token"`
+	ExpectedRevision int64          `json:"expected_revision"`
+	OperationID      string         `json:"operation_id"`
+	QuestID          string         `json:"quest_id"`
+	ObjectiveID      string         `json:"objective_id"`
+	Required         int            `json:"required"`
+	Amount           int            `json:"amount"`
+	Reward           map[string]int `json:"-"`
 }
 
 type QuestSnapshot struct {

@@ -15,9 +15,13 @@ import (
 var ErrUnauthorized = errors.New("unauthorized")
 var ErrRejected = errors.New("rejected")
 
-// 服务器拥有的任务目标需求；客户端不能自定义 required。
+// 服务器拥有的任务目标需求与完成奖励；客户端不能自定义 required 或 reward。
 var questObjectives = map[string]map[string]int{
 	"starter_collect": {"collect_coin": 2},
+}
+
+var questRewards = map[string]map[string]int{
+	"starter_collect": {"gem": 1},
 }
 
 func QuestRequirement(questID, objectiveID string) (int, bool) {
@@ -27,6 +31,18 @@ func QuestRequirement(questID, objectiveID string) (int, bool) {
 	}
 	required, ok := objectives[objectiveID]
 	return required, ok
+}
+
+func QuestReward(questID string) map[string]int {
+	reward, ok := questRewards[questID]
+	if !ok {
+		return nil
+	}
+	out := make(map[string]int, len(reward))
+	for itemID, amount := range reward {
+		out[itemID] = amount
+	}
+	return out
 }
 
 type Store interface {
@@ -171,6 +187,7 @@ func (s *Service) CommitQuest(ctx context.Context, in domain.QuestCommit) (domai
 		return domain.ProgressSnapshot{}, ErrRejected
 	}
 	in.Required = required
+	in.Reward = QuestReward(in.QuestID)
 	return s.Store.CommitQuest(ctx, in)
 }
 

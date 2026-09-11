@@ -199,13 +199,20 @@ func (p *PG) CommitQuest(c context.Context, in domain.QuestCommit) (domain.Progr
 		return domain.ProgressSnapshot{}, err
 	}
 	var revision int64
-	var questsRaw []byte
-	if err = tx.QueryRow(c, `select revision,quests from player_progress where player_id=$1 for update`, in.PlayerID).Scan(&revision, &questsRaw); err != nil {
+	var questsRaw, inventoryRaw []byte
+	if err = tx.QueryRow(c, `select revision,quests,inventory from player_progress where player_id=$1 for update`, in.PlayerID).Scan(&revision, &questsRaw, &inventoryRaw); err != nil {
 		return domain.ProgressSnapshot{}, err
 	}
 	var quests []domain.QuestState
 	if err = json.Unmarshal(questsRaw, &quests); err != nil {
 		return domain.ProgressSnapshot{}, err
+	}
+	var inventory map[string]int
+	if err = json.Unmarshal(inventoryRaw, &inventory); err != nil {
+		return domain.ProgressSnapshot{}, err
+	}
+	if inventory == nil {
+		inventory = map[string]int{}
 	}
 	questIndex := -1
 	for i := range quests {
@@ -218,6 +225,7 @@ func (p *PG) CommitQuest(c context.Context, in domain.QuestCommit) (domain.Progr
 		quests = append(quests, domain.QuestState{QuestID: in.QuestID})
 		questIndex = len(quests) - 1
 	}
+	wasCompleted := quests[questIndex].Completed
 	objectiveIndex := -1
 	for i := range quests[questIndex].Objectives {
 		if quests[questIndex].Objectives[i].ObjectiveID == in.ObjectiveID {
@@ -245,9 +253,16 @@ func (p *PG) CommitQuest(c context.Context, in domain.QuestCommit) (domain.Progr
 		}
 	}
 	quests[questIndex].Revision = revision + 1
-	updated, _ := json.Marshal(quests)
+	// 完成瞬间在同一事务内发放服务器配置的奖励，只发一次。
+	if !wasCompleted && quests[questIndex].Completed {
+		for itemID, amount := range in.Reward {
+			inventory[itemID] += amount
+		}
+	}
+	updatedQuests, _ := json.Marshal(quests)
+	updatedInventory, _ := json.Marshal(inventory)
 	var newRevision int64
-	if err = tx.QueryRow(c, `update player_progress p set revision=p.revision+1,quests=$5 from active_player_session s where p.player_id=$1 and s.player_id=p.player_id and s.room_id=$2 and s.fencing_token=$3 and s.lease_expires_at>now() and p.revision=$4 returning p.revision`, in.PlayerID, in.RoomID, in.FencingToken, in.ExpectedRevision, updated).Scan(&newRevision); err != nil {
+	if err = tx.QueryRow(c, `update player_progress p set revision=p.revision+1,quests=$5,inventory=$6 from active_player_session s where p.player_id=$1 and s.player_id=p.player_id and s.room_id=$2 and s.fencing_token=$3 and s.lease_expires_at>now() and p.revision=$4 returning p.revision`, in.PlayerID, in.RoomID, in.FencingToken, in.ExpectedRevision, updatedQuests, updatedInventory).Scan(&newRevision); err != nil {
 		return domain.ProgressSnapshot{}, err
 	}
 	payload, _ := json.Marshal(in)

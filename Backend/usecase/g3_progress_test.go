@@ -143,6 +143,13 @@ func TestG3QuestCommitAdvancesProgress(t *testing.T) {
 	if err != nil || !second.Quests[0].Completed || second.Quests[0].Objectives[0].Progress != 2 {
 		t.Fatalf("quest step2=%#v err=%v", second, err)
 	}
+	if second.Inventory["gem"] != 1 {
+		t.Fatalf("quest reward missing: %#v", second.Inventory)
+	}
+	replay, err := s.CommitQuest(ctx, step)
+	if err != nil || replay.Inventory["gem"] != 1 || replay.Revision != second.Revision {
+		t.Fatalf("reward must be granted once: %#v err=%v", replay.Inventory, err)
+	}
 	if _, err = s.CommitQuest(ctx, domain.QuestCommit{PlayerID: player, RoomID: "room-a", FencingToken: lease.FencingToken, ExpectedRevision: second.Revision, OperationID: "quest-3", QuestID: "missing", ObjectiveID: "x", Amount: 1}); err == nil {
 		t.Fatal("unknown quest accepted")
 	}

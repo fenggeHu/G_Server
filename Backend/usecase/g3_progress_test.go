@@ -95,6 +95,17 @@ func TestG3EquipmentCommitUpdatesSnapshot(t *testing.T) {
 	if err != nil || len(unequipped.Equipment) != 0 || unequipped.Revision != 2 { t.Fatalf("unequip snapshot=%#v err=%v", unequipped, err) }
 }
 
+func TestG3QuestSnapshotReturnsUnlocks(t *testing.T) {
+	p, s, player := openG3Store(t)
+	defer p.Pool.Close()
+	ctx := context.Background()
+	snapshot, err := s.GetQuestSnapshot(ctx, player)
+	if err != nil { t.Fatal(err) }
+	if snapshot.PlayerID != player || snapshot.Revision != 0 || snapshot.Unlocks == nil {
+		t.Fatalf("unexpected quest snapshot: %#v", snapshot)
+	}
+}
+
 func TestG3ProgressOperationIsIdempotentAndRejectsPayloadChange(t *testing.T) {
 	p, s, player := openG3Store(t)
 	defer p.Pool.Close()

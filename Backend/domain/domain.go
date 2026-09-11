@@ -8,12 +8,15 @@ import (
 var ErrConflict = errors.New("conflict")
 
 const (
-	Preset  = "exploration"
-	Content = "g0-empty-v1"
-	CombatPreset = "coop_combat"
-	CombatContent = "g4-coop-combat-v1"
-	Room    = "g0-room"
-	Proto   = 1
+	Preset              = "exploration"
+	Content             = "g0-empty-v1"
+	CombatPreset        = "coop_combat"
+	CombatContent       = "g4-coop-combat-v1"
+	Room                = "g0-room"
+	Proto               = 1
+	DefaultMap          = "starter_valley"
+	DefaultMapContent   = "starter_valley-0"
+	DefaultMapAuthority = "starter_valley-authority-0"
 )
 
 type Player struct {
@@ -23,6 +26,7 @@ type Player struct {
 type Session struct{ PlayerID, TokenHash string }
 type Ticket struct {
 	Token, PlayerID, RoomID, PresetID, ConfigHash string
+	MapID, MapContentVersion, MapAuthorityVersion string
 	Protocol                                      int
 	Content                                       string
 }
@@ -39,6 +43,9 @@ type RoomRecord struct {
 	Capacity            int       `json:"capacity"`
 	UsedPlayers         int       `json:"used_players"`
 	LastHeartbeat       time.Time `json:"last_heartbeat"`
+	MapID               string    `json:"map_id,omitempty"`
+	MapContentVersion   string    `json:"map_content_version,omitempty"`
+	MapAuthorityVersion string    `json:"map_authority_version,omitempty"`
 }
 
 type Reservation struct{ RoomID, PlayerID string }
@@ -89,9 +96,9 @@ type QuestCommit struct {
 }
 
 type QuestSnapshot struct {
-	PlayerID string `json:"player_id"`
-	Revision int64 `json:"revision"`
-	Unlocks []string `json:"unlocks"`
+	PlayerID string   `json:"player_id"`
+	Revision int64    `json:"revision"`
+	Unlocks  []string `json:"unlocks"`
 }
 type SessionLease struct {
 	PlayerID       string    `json:"player_id"`
@@ -112,22 +119,22 @@ type ProgressCommit struct {
 	Payload          []byte `json:"payload"`
 }
 type EquipmentCommit struct {
-	PlayerID string `json:"player_id"`
-	RoomID string `json:"room_id"`
-	FencingToken int64 `json:"fencing_token"`
-	ExpectedRevision int64 `json:"expected_revision"`
-	OperationID string `json:"operation_id"`
-	Slot string `json:"slot"`
-	ItemID string `json:"item_id"`
-	Equipped bool `json:"equipped"`
+	PlayerID         string `json:"player_id"`
+	RoomID           string `json:"room_id"`
+	FencingToken     int64  `json:"fencing_token"`
+	ExpectedRevision int64  `json:"expected_revision"`
+	OperationID      string `json:"operation_id"`
+	Slot             string `json:"slot"`
+	ItemID           string `json:"item_id"`
+	Equipped         bool   `json:"equipped"`
 }
 type OperationResult struct {
-	OperationID string `json:"operation_id"`
-	Status      string `json:"status"`
-	Code        string `json:"code,omitempty"`
-	Result      string `json:"result,omitempty"`
-	Revision    int64  `json:"revision"`
-	Payload     []byte `json:"payload,omitempty"`
+	OperationID string         `json:"operation_id"`
+	Status      string         `json:"status"`
+	Code        string         `json:"code,omitempty"`
+	Result      string         `json:"result,omitempty"`
+	Revision    int64          `json:"revision"`
+	Payload     []byte         `json:"payload,omitempty"`
 	Inventory   map[string]int `json:"inventory,omitempty"`
 }
 

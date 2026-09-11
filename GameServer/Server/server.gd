@@ -220,6 +220,29 @@ func _safe_name(value: String) -> String:
 		if c.to_lower() in "abcdefghijklmnopqrstuvwxyz0123456789_": result += c
 	return result
 
+@rpc("any_peer", "call_remote", "reliable")
+func change_equipment(request_id: String, slot: String, item_id: String, equipped: bool, revision: int) -> void:
+	var id := multiplayer.get_remote_sender_id()
+	if not identities.has(id) or not leases.has(id):
+		return
+	if request_id.is_empty() or request_id.length() > 128 or slot.is_empty() or slot.length() > 32 or item_id.is_empty() or item_id.length() > 128 or revision < 0:
+		return
+	var player_id: String = identities[id]
+	var lease: Dictionary = leases[id].duplicate()
+	var response := await _progress_post("equipment", {"player_id": player_id, "room_id": room_id,
+		"fencing_token": lease.fencing_token, "expected_revision": revision,
+		"operation_id": request_id, "slot": slot, "item_id": item_id, "equipped": equipped})
+	if identities.get(id) != player_id or not leases.has(id) or leases[id].fencing_token != lease.fencing_token or not multiplayer.get_peers().has(id):
+		return
+	if response.is_empty():
+		equipment_result.rpc_id(id, request_id, {"status": "unknown"})
+		return
+	progress_snapshots[id] = response
+	equipment_result.rpc_id(id, request_id, {"status": "succeeded", "snapshot": response})
+
+@rpc("authority", "call_remote", "reliable")
+func equipment_result(_request_id: String, _result: Dictionary) -> void: pass
+
 ## Server-only damage producer. Client RPCs never call this method directly.
 func _apply_player_damage(connection_id: int, damage: int) -> bool:
 	if not player_health.has(connection_id) or damage <= 0:

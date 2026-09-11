@@ -207,6 +207,26 @@ func run() error {
 		fmt.Println("G1_PICKUP_RANGE_INTEGRATION_PASS")
 		return nil
 	}
+	if os.Getenv("G1_QUEST") == "1" {
+		a, ad, err := start("A", []string{"godot", "--headless", "--path", filepath.Join(root, "3D_App"), "--script", "res://Tests/Godot/g1_quest_driver.gd"}, "G0_USERNAME=g1-a", "G1_CLIENT_ROLE=A", "G3_INTEGRATION=0")
+		if err != nil {
+			return err
+		}
+		defer a.Process.Kill()
+		if err = waitLog("A", "G1_QUEST_PASS"); err != nil {
+			return err
+		}
+		select {
+		case err := <-ad:
+			if err != nil {
+				return fmt.Errorf("client A: %w", err)
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		fmt.Println("G1_QUEST_INTEGRATION_PASS")
+		return nil
+	}
 	if os.Getenv("G1_COMBAT_DAMAGE") == "1" {
 		a, ad, err := start("A", []string{"godot", "--headless", "--path", filepath.Join(root, "3D_App"), "--script", "res://Tests/Godot/g1_combat_damage_driver.gd"}, "G0_USERNAME=g1-a", "G1_CLIENT_ROLE=A", "G3_INTEGRATION=0")
 		if err != nil {

@@ -322,6 +322,27 @@ func change_equipment(request_id: String, slot: String, item_id: String, equippe
 @rpc("authority", "call_remote", "reliable")
 func equipment_result(_request_id: String, _result: Dictionary) -> void: pass
 
+@rpc("any_peer", "call_remote", "reliable")
+func advance_quest(quest_id: String, objective_id: String, request_id: String, revision: int) -> void:
+	var id := multiplayer.get_remote_sender_id()
+	if not identities.has(id) or not leases.has(id):
+		return
+	if quest_id.is_empty() or quest_id.length() > 64 or objective_id.is_empty() or objective_id.length() > 64 or request_id.is_empty() or request_id.length() > 128 or revision < 0:
+		return
+	var player_id: String = identities[id]
+	var lease: Dictionary = leases[id].duplicate()
+	var response := await _progress_post("quest", {"player_id": player_id, "room_id": room_id, "fencing_token": lease.fencing_token, "expected_revision": revision, "operation_id": request_id, "quest_id": quest_id, "objective_id": objective_id, "amount": 1})
+	if identities.get(id) != player_id or not leases.has(id) or leases[id].fencing_token != lease.fencing_token or not multiplayer.get_peers().has(id):
+		return
+	if response.is_empty():
+		quest_result.rpc_id(id, request_id, {"status": "unknown"})
+		return
+	progress_snapshots[id] = response
+	quest_result.rpc_id(id, request_id, {"status": "succeeded", "snapshot": response})
+
+@rpc("authority", "call_remote", "reliable")
+func quest_result(_request_id: String, _result: Dictionary) -> void: pass
+
 ## Server-only damage producer. Client RPCs never call this method directly.
 func _apply_player_damage(connection_id: int, damage: int) -> bool:
 	if not player_health.has(connection_id) or damage <= 0:

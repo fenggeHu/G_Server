@@ -97,8 +97,30 @@ func TestG3EquipmentCommitUpdatesSnapshot(t *testing.T) {
 	if err != nil || len(unequipped.Equipment) != 0 || unequipped.Revision != 2 { t.Fatalf("unequip snapshot=%#v err=%v", unequipped, err) }
 }
 
-func TestG3QuestSnapshotReturnsUnlocks(t *testing.T) {
-	p, s, player := openG3Store(t)
+func TestG3SchemaMigrationIsIdempotent(t *testing.T) {
+	p, _, _ := openG3Store(t)
+	defer p.Pool.Close()
+	ctx := context.Background()
+	if err := infra.Migrate(ctx, p); err != nil {
+		t.Fatalf("re-running migrations must be idempotent: %v", err)
+	}
+	var hasQuests bool
+	if err := p.Pool.QueryRow(ctx, `select exists(select 1 from information_schema.columns where table_name='player_progress' and column_name='quests')`).Scan(&hasQuests); err != nil {
+		t.Fatal(err)
+	}
+	if !hasQuests {
+		t.Fatal("quests column missing after migration")
+	}
+	var applied int
+	if err := p.Pool.QueryRow(ctx, `select count(*) from schema_migration`).Scan(&applied); err != nil {
+		t.Fatal(err)
+	}
+	if applied < 2 {
+		t.Fatalf("expected at least two migrations, got %d", applied)
+	}
+}
+
+func TestG3QuestSnapshotReturnsUnlocks(t *testing.T) {	p, s, player := openG3Store(t)
 	defer p.Pool.Close()
 	ctx := context.Background()
 	if _, err := s.AcquireSession(ctx, player, "room-a"); err != nil { t.Fatal(err) }

@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 )
 
 type PG struct {
@@ -343,10 +345,17 @@ func Migrate(ctx context.Context, p *PG) error {
 	if path == "" {
 		path = "migrations"
 	}
-	b, e := os.ReadFile(filepath.Join(path, "001_init.sql"))
+	entries, e := os.ReadDir(path)
 	if e != nil {
 		return e
 	}
+	var files []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".sql") {
+			files = append(files, entry.Name())
+		}
+	}
+	sort.Strings(files)
 	tx, e := p.Pool.Begin(ctx)
 	if e != nil {
 		return e
@@ -363,22 +372,29 @@ func Migrate(ctx context.Context, p *PG) error {
 	if _, e = tx.Exec(ctx, "create table if not exists schema_migration(name text primary key,checksum text not null,created_at timestamptz not null default now(),updated_at timestamptz not null default now(),status smallint not null default 1)"); e != nil {
 		return e
 	}
-	var old string
-	e = tx.QueryRow(ctx, "select checksum from schema_migration where name='001_init.sql'").Scan(&old)
-	if e == nil {
-		if old != domainHash(string(b)) {
-			return fmt.Errorf("migration checksum mismatch")
+	for _, name := range files {
+		b, e := os.ReadFile(filepath.Join(path, name))
+		if e != nil {
+			return e
 		}
-		return tx.Commit(ctx)
-	}
-	if e != pgx.ErrNoRows {
-		return e
-	}
-	if _, e = tx.Exec(ctx, string(b)); e != nil {
-		return e
-	}
-	if _, e = tx.Exec(ctx, "insert into schema_migration values('001_init.sql',$1)", domainHash(string(b))); e != nil {
-		return e
+		checksum := domainHash(string(b))
+		var old string
+		e = tx.QueryRow(ctx, "select checksum from schema_migration where name=$1", name).Scan(&old)
+		if e == nil {
+			if old != checksum {
+				return fmt.Errorf("migration checksum mismatch: %s", name)
+			}
+			continue
+		}
+		if !errors.Is(e, pgx.ErrNoRows) {
+			return e
+		}
+		if _, e = tx.Exec(ctx, string(b)); e != nil {
+			return fmt.Errorf("migration %s: %w", name, e)
+		}
+		if _, e = tx.Exec(ctx, "insert into schema_migration(name,checksum) values($1,$2)", name, checksum); e != nil {
+			return e
+		}
 	}
 	return tx.Commit(ctx)
 }

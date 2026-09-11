@@ -218,6 +218,8 @@ func _apply_player_damage(connection_id: int, damage: int) -> bool:
 func _progress_post(action: String, body: Dictionary) -> Dictionary:
 	var response := await _room_post("/v1/internal/progress/" + action, body)
 	if response.size() <= 3 or response[0] != HTTPRequest.RESULT_SUCCESS or response[1] != 200:
+		if response.size() > 1:
+			print("G3_PROGRESS_FAILED action=" + action + " status=" + str(response[1]) + " body=" + (response[3].get_string_from_utf8() if response.size() > 3 else ""))
 		return {}
 	var p := JSON.new()
 	if p.parse(response[3].get_string_from_utf8()) != OK or not p.data is Dictionary:
@@ -246,11 +248,22 @@ func _try_pickup(id: int, entity_id: String, request_id: String) -> void:
 	var x: Dictionary = leases[id]
 	var out := await _progress_post("commit", {"player_id": identities[id], "room_id": room_id, "fencing_token": x.fencing_token, "expected_revision": 0, "operation_id": entity.operation_id, "payload": {"item": entity.item, "amount": 1}})
 	if out.is_empty():
+		print("G3_PICKUP_COMMIT_UNKNOWN player_id=" + identities[id])
+		pickup_result.rpc_id(id, request_id, {"status": "unknown", "code": "commit_uncertain"})
 		return
+	print("G3_PICKUP_COMMIT_RESULT player_id=" + identities[id] + " status=" + str(out.get("status", "missing")))
+	if out.has("inventory") and out.inventory is Dictionary:
+		out["inventory"] = _inventory_snapshot(identities[id], int(out.get("revision", 0)), out.inventory)
 	if out.get("status") == "succeeded":
 		entity.state = "consumed"; pickup_entities[entity_id] = entity; pickup_result.rpc_id(id, request_id, out)
 	else:
 		entity.state = "available"; pickup_entities[entity_id] = entity; pickup_result.rpc_id(id, request_id, out)
+
+func _inventory_snapshot(player_id: String, revision: int, values: Dictionary) -> Dictionary:
+	var entries: Array = []
+	for item_id in values:
+		entries.append({"item_id": String(item_id), "quantity": int(values[item_id])})
+	return {"player_id": player_id, "revision": revision, "capacity": 20, "entries": entries}
 
 @rpc("any_peer", "call_remote", "reliable")
 func try_pickup(entity_id: String, request_id: String) -> void:

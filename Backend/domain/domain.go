@@ -71,6 +71,7 @@ type OperationResult struct {
 	Result      string `json:"result,omitempty"`
 	Revision    int64  `json:"revision"`
 	Payload     []byte `json:"payload,omitempty"`
+	Inventory   map[string]int `json:"inventory,omitempty"`
 }
 
 const OperationSucceeded = "succeeded"

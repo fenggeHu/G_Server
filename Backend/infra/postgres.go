@@ -159,6 +159,12 @@ func (p *PG) CommitProgress(c context.Context, in domain.ProgressCommit) (domain
 		}
 		old.OperationID = in.OperationID
 		old.Payload = raw
+		if e = tx.QueryRow(c, `select inventory from player_progress where player_id=$1`, in.PlayerID).Scan(&raw); e != nil {
+			return old, e
+		}
+		if e = json.Unmarshal(raw, &old.Inventory); e != nil {
+			return old, e
+		}
 		return old, tx.Commit(c)
 	}
 	if e != pgx.ErrNoRows {
@@ -176,7 +182,14 @@ func (p *PG) CommitProgress(c context.Context, in domain.ProgressCommit) (domain
 	if e = tx.Commit(c); e != nil {
 		return old, e
 	}
-	return domain.OperationResult{OperationID: in.OperationID, Status: domain.OperationSucceeded, Revision: revision, Payload: in.Payload}, nil
+	var inventory map[string]int
+	if e = tx.QueryRow(c, `select inventory from player_progress where player_id=$1`, in.PlayerID).Scan(&raw); e != nil {
+		return old, e
+	}
+	if e = json.Unmarshal(raw, &inventory); e != nil {
+		return old, e
+	}
+	return domain.OperationResult{OperationID: in.OperationID, Status: domain.OperationSucceeded, Revision: revision, Payload: in.Payload, Inventory: inventory}, nil
 }
 func (p *PG) RegisterRoom(c context.Context, x domain.RoomRecord) (domain.RoomRecord, error) {
     e := p.Pool.QueryRow(c, `insert into room(room_id,host,port,protocol_version,gameplay_content_hash,resolved_config_hash,capacity,generation,status,used_players,last_heartbeat) values($1,$2,$3,$4,$5,$6,$7,$8,$9,0,now()) on conflict(room_id) do update set host=excluded.host,port=excluded.port,protocol_version=excluded.protocol_version,gameplay_content_hash=excluded.gameplay_content_hash,resolved_config_hash=excluded.resolved_config_hash,capacity=excluded.capacity,generation=excluded.generation,status=excluded.status,last_heartbeat=now() where room.generation<=excluded.generation returning room_id,host,port,protocol_version,gameplay_content_hash,resolved_config_hash,status,generation,capacity,used_players,last_heartbeat`, x.ID, x.Host, x.Port, x.ProtocolVersion, x.GameplayContentHash, x.ResolvedConfigHash, x.Capacity, x.Generation, x.Status).Scan(&x.ID, &x.Host, &x.Port, &x.ProtocolVersion, &x.GameplayContentHash, &x.ResolvedConfigHash, &x.Status, &x.Generation, &x.Capacity, &x.UsedPlayers, &x.LastHeartbeat)

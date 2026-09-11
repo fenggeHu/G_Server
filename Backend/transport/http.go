@@ -117,6 +117,16 @@ type commitReq struct {
 	OperationID      string          `json:"operation_id"`
 	Payload          json.RawMessage `json:"payload"`
 }
+type equipmentReq struct {
+	PlayerID string `json:"player_id"`
+	RoomID string `json:"room_id"`
+	FencingToken float64 `json:"fencing_token"`
+	ExpectedRevision float64 `json:"expected_revision"`
+	OperationID string `json:"operation_id"`
+	Slot string `json:"slot"`
+	ItemID string `json:"item_id"`
+	Equipped bool `json:"equipped"`
+}
 
 func decode(b []byte, v any) bool {
 	d := json.NewDecoder(bytes.NewReader(b))
@@ -320,12 +330,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if path == "/v1/internal/progress/equipment" {
-			var x domain.EquipmentCommit
-			if !decode(b, &x) || !text(x.PlayerID, 64) || !text(x.RoomID, 128) || !text(x.OperationID, 128) || !text(x.Slot, 32) || !text(x.ItemID, 128) || x.FencingToken < 1 || x.ExpectedRevision < 0 {
+			var x equipmentReq
+			if !decode(b, &x) || !text(x.PlayerID, 64) || !text(x.RoomID, 128) || !text(x.OperationID, 128) || !text(x.Slot, 32) || !text(x.ItemID, 128) || !integer(x.FencingToken) || !integer(x.ExpectedRevision) || x.FencingToken < 1 || x.ExpectedRevision < 0 {
 				failure(w, 422, "invalid request")
 				return
 			}
-			out, e := h.Service.CommitEquipment(ctx, x)
+			out, e := h.Service.CommitEquipment(ctx, domain.EquipmentCommit{PlayerID: x.PlayerID, RoomID: x.RoomID, FencingToken: int64(x.FencingToken), ExpectedRevision: int64(x.ExpectedRevision), OperationID: x.OperationID, Slot: x.Slot, ItemID: x.ItemID, Equipped: x.Equipped})
 			if e != nil { dbError(w, e); return }
 			response(w, 200, out)
 			return

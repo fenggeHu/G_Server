@@ -132,15 +132,23 @@ func validPreset(preset, content string, proto int) bool {
 }
 func ValidPreset(preset, content string, proto int) bool { return validPreset(preset, content, proto) }
 func (s *Service) Allocate(ctx context.Context, playerID, sessionHash, preset, content string, proto int) (domain.Ticket, domain.RoomRecord, error) {
+	return s.AllocateForMap(ctx, playerID, sessionHash, preset, content, domain.DefaultMap, proto)
+}
+
+func (s *Service) AllocateForMap(ctx context.Context, playerID, sessionHash, preset, content, mapID string, proto int) (domain.Ticket, domain.RoomRecord, error) {
 	if !validPreset(preset, content, proto) {
 		return domain.Ticket{}, domain.RoomRecord{}, errors.New("version mismatch")
+	}
+	mapDef, ok := MapDefinitionFor(mapID)
+	if !ok {
+		return domain.Ticket{}, domain.RoomRecord{}, errors.New("map unavailable")
 	}
 	r, err := s.Store.AllocateRoom(ctx, playerID, content, proto, ConfigHashFor(preset, content))
 	if err != nil {
 		return domain.Ticket{}, domain.RoomRecord{}, err
 	}
 	t := token(48)
-	x := domain.Ticket{Token: t, PlayerID: playerID, RoomID: r.ID, PresetID: preset, ConfigHash: ConfigHashFor(preset, content), Protocol: proto, Content: content}
+	x := domain.Ticket{Token: t, PlayerID: playerID, RoomID: r.ID, PresetID: preset, ConfigHash: ConfigHashFor(preset, content), Protocol: proto, Content: content, MapID: mapDef.ID, MapContentVersion: mapDef.ContentVersion, MapAuthorityVersion: mapDef.AuthorityVersion}
 	err = s.Store.IssueTicket(ctx, x, Hash(t), sessionHash)
 	if err != nil {
 		_ = s.Store.ReleaseReservation(ctx, r.ID, playerID)

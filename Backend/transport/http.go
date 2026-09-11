@@ -95,6 +95,7 @@ type login struct {
 }
 type ticketReq struct {
 	Preset  string `json:"preset_id"`
+	MapID   string `json:"map_id"`
 	Proto   int    `json:"protocol_version"`
 	Content string `json:"gameplay_content_hash"`
 }
@@ -120,14 +121,14 @@ type commitReq struct {
 	Payload          json.RawMessage `json:"payload"`
 }
 type equipmentReq struct {
-	PlayerID string `json:"player_id"`
-	RoomID string `json:"room_id"`
-	FencingToken float64 `json:"fencing_token"`
+	PlayerID         string  `json:"player_id"`
+	RoomID           string  `json:"room_id"`
+	FencingToken     float64 `json:"fencing_token"`
 	ExpectedRevision float64 `json:"expected_revision"`
-	OperationID string `json:"operation_id"`
-	Slot string `json:"slot"`
-	ItemID string `json:"item_id"`
-	Equipped bool `json:"equipped"`
+	OperationID      string  `json:"operation_id"`
+	Slot             string  `json:"slot"`
+	ItemID           string  `json:"item_id"`
+	Equipped         bool    `json:"equipped"`
 }
 
 func decode(b []byte, v any) bool {
@@ -318,7 +319,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if path == "/v1/internal/progress/snapshot" {
-			var x struct{ PlayerID string `json:"player_id"` }
+			var x struct {
+				PlayerID string `json:"player_id"`
+			}
 			if !decode(b, &x) || !text(x.PlayerID, 64) {
 				failure(w, 422, "invalid request")
 				return
@@ -338,15 +341,26 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			out, e := h.Service.CommitEquipment(ctx, domain.EquipmentCommit{PlayerID: x.PlayerID, RoomID: x.RoomID, FencingToken: int64(x.FencingToken), ExpectedRevision: int64(x.ExpectedRevision), OperationID: x.OperationID, Slot: x.Slot, ItemID: x.ItemID, Equipped: x.Equipped})
-			if e != nil { dbError(w, e); return }
+			if e != nil {
+				dbError(w, e)
+				return
+			}
 			response(w, 200, out)
 			return
 		}
 		if path == "/v1/internal/progress/quests" {
-			var x struct{ PlayerID string `json:"player_id"` }
-			if !decode(b, &x) || !text(x.PlayerID, 64) { failure(w, 422, "invalid request"); return }
+			var x struct {
+				PlayerID string `json:"player_id"`
+			}
+			if !decode(b, &x) || !text(x.PlayerID, 64) {
+				failure(w, 422, "invalid request")
+				return
+			}
 			out, e := h.Service.GetQuestSnapshot(ctx, x.PlayerID)
-			if e != nil { dbError(w, e); return }
+			if e != nil {
+				dbError(w, e)
+				return
+			}
 			response(w, 200, out)
 			return
 		}
@@ -448,7 +462,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var x ticketReq
-	if !decode(b, &x) || !text(x.Preset, 32) || !text(x.Content, 128) || x.Proto < 1 || x.Proto > 100 {
+	if !decode(b, &x) || !text(x.Preset, 32) || (x.MapID != "" && !text(x.MapID, 64)) || !text(x.Content, 128) || x.Proto < 1 || x.Proto > 100 {
 		failure(w, 422, "invalid request")
 		return
 	}
@@ -458,7 +472,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if path == "/v1/rooms/allocate" {
-		out, r, e := h.Service.Allocate(ctx, s.PlayerID, s.TokenHash, x.Preset, x.Content, x.Proto)
+		if x.MapID == "" {
+			x.MapID = domain.DefaultMap
+		}
+		out, r, e := h.Service.AllocateForMap(ctx, s.PlayerID, s.TokenHash, x.Preset, x.Content, x.MapID, x.Proto)
 		if e != nil {
 			fmt.Printf("ALLOCATE_ERR player=%s preset=%s content=%s proto=%d err=%v\n", s.PlayerID, x.Preset, x.Content, x.Proto, e)
 			if errors.Is(e, pgx.ErrNoRows) {
@@ -468,13 +485,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			dbError(w, e)
 			return
 		}
-		response(w, 200, map[string]any{"ticket": out.Token, "room_id": r.ID, "host": r.Host, "port": r.Port, "preset_id": out.PresetID, "resolved_config_hash": out.ConfigHash, "protocol_version": out.Protocol, "gameplay_content_hash": out.Content})
+		response(w, 200, map[string]any{"ticket": out.Token, "room_id": r.ID, "host": r.Host, "port": r.Port, "preset_id": out.PresetID, "map_id": out.MapID, "map_content_version": out.MapContentVersion, "map_authority_version": out.MapAuthorityVersion, "resolved_config_hash": out.ConfigHash, "protocol_version": out.Protocol, "gameplay_content_hash": out.Content})
 		return
 	}
-	out, e := h.Service.Ticket(ctx, s.PlayerID, s.TokenHash, x.Preset, x.Content, x.Proto)
+	if x.MapID == "" {
+		x.MapID = domain.DefaultMap
+	}
+	out, e := h.Service.TicketForMap(ctx, s.PlayerID, s.TokenHash, x.Preset, x.Content, x.MapID, x.Proto)
 	if e != nil {
 		dbError(w, e)
 		return
 	}
-	response(w, 200, map[string]any{"ticket": out.Token, "room_id": out.RoomID, "host": h.Service.Host, "port": h.Service.Port, "preset_id": out.PresetID, "resolved_config_hash": out.ConfigHash, "protocol_version": out.Protocol, "gameplay_content_hash": out.Content})
+	response(w, 200, map[string]any{"ticket": out.Token, "room_id": out.RoomID, "host": h.Service.Host, "port": h.Service.Port, "preset_id": out.PresetID, "map_id": out.MapID, "map_content_version": out.MapContentVersion, "map_authority_version": out.MapAuthorityVersion, "resolved_config_hash": out.ConfigHash, "protocol_version": out.Protocol, "gameplay_content_hash": out.Content})
 }

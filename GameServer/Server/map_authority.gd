@@ -62,4 +62,5 @@ func contains_horizontal(position: Vector3) -> bool:
 
 
 func allows_flight_at(position: Vector3) -> bool:
-	return is_valid() and flight_enabled and position.y <= max_flight_height
+	return is_valid() and flight_enabled and contains_horizontal(position) \
+			and position.y <= max_flight_height

@@ -26,6 +26,7 @@ func _initialize() -> void:
 	assert(not authority.contains_horizontal(Vector3(141.0, 0.0, 0.0)))
 	assert(authority.allows_flight_at(Vector3(0.0, 28.0, 0.0)))
 	assert(not authority.allows_flight_at(Vector3(0.0, 28.1, 0.0)))
+	assert(not authority.allows_flight_at(Vector3(141.0, 0.0, 0.0)))
 	var invalid := MapAuthority.new()
 	assert(not invalid.configure({
 		"map_id": "broken", "authority_version": "v1",

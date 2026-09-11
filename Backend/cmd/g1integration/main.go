@@ -187,6 +187,51 @@ func run() error {
 		fmt.Println("G1_EQUIPMENT_INTEGRATION_PASS")
 		return nil
 	}
+	if os.Getenv("G1_EQUIPMENT_TWO") == "1" {
+		args := []string{"godot", "--headless", "--path", filepath.Join(root, "3D_App"), "--script", "res://Tests/Godot/g1_equipment_authority_driver.gd"}
+		a, ad, err := start("A", args, "G0_USERNAME=g1-a", "G1_CLIENT_ROLE=A", "G3_INTEGRATION=0", "G1_EQ_ROLE=A")
+		if err != nil {
+			return err
+		}
+		defer a.Process.Kill()
+		if err = waitLog("A", "G1_EQ_A_READY"); err != nil {
+			return err
+		}
+		// 房间分配使用行锁 skip locked；顺序启动避免两端同时申请导致 409。
+		b, bd, err := start("B", args, "G0_USERNAME=g1-b", "G1_CLIENT_ROLE=B", "G3_INTEGRATION=0", "G1_EQ_ROLE=B")
+		if err != nil {
+			return err
+		}
+		defer b.Process.Kill()
+		if err = waitLog("B", "G1_EQ_B_PASS"); err != nil {
+			return err
+		}
+		var aEquipped, bEquipped string
+		if err = p.Pool.QueryRow(ctx, `select coalesce(equipment->>'weapon','') from player_progress where player_id=(select player_id from player where username='g1-a')`).Scan(&aEquipped); err != nil {
+			return err
+		}
+		if err = p.Pool.QueryRow(ctx, `select coalesce(equipment->>'weapon','') from player_progress where player_id=(select player_id from player where username='g1-b')`).Scan(&bEquipped); err != nil {
+			return err
+		}
+		if aEquipped != "coin" || bEquipped != "" {
+			return fmt.Errorf("equipment authority mismatch a=%q b=%q", aEquipped, bEquipped)
+		}
+		for _, entry := range []struct {
+			name string
+			done chan error
+		}{{"A", ad}, {"B", bd}} {
+			select {
+			case err := <-entry.done:
+				if err != nil {
+					return fmt.Errorf("client %s: %w", entry.name, err)
+				}
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		fmt.Println("G1_EQUIPMENT_TWO_INTEGRATION_PASS")
+		return nil
+	}
 	if os.Getenv("G1_PICKUP_RANGE") == "1" {
 		a, ad, err := start("A", []string{"godot", "--headless", "--path", filepath.Join(root, "3D_App"), "--script", "res://Tests/Godot/g1_pickup_range_driver.gd"}, "G0_USERNAME=g1-a", "G1_CLIENT_ROLE=A", "G3_INTEGRATION=0")
 		if err != nil {

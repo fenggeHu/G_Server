@@ -9,6 +9,7 @@ var min_z := 0.0
 var max_z := 0.0
 var flight_enabled := false
 var max_flight_height := 0.0
+var min_ground_y := -INF
 var blockers: Array = []
 
 
@@ -46,6 +47,8 @@ func configure(data: Dictionary) -> bool:
 	max_z = float(boundary.get("max_z", -INF))
 	flight_enabled = bool(flight.get("enabled", false))
 	max_flight_height = float(flight.get("max_height", -1.0))
+	var ground = data.get("ground", {})
+	min_ground_y = float(ground.get("min_y", -INF)) if ground is Dictionary else -INF
 	blockers.clear()
 	var raw_blockers = data.get("blockers", [])
 	if raw_blockers is Array:
@@ -79,6 +82,10 @@ func contains_horizontal(position: Vector3) -> bool:
 func allows_flight_at(position: Vector3) -> bool:
 	return is_valid() and flight_enabled and contains_horizontal(position) \
 			and position.y <= max_flight_height
+
+
+func above_floor(position: Vector3) -> bool:
+	return is_valid() and position.y >= min_ground_y
 
 
 func is_blocked(position: Vector3, radius: float = 0.35) -> bool:

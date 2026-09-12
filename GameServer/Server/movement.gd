@@ -48,6 +48,9 @@ func step(tick: int) -> void:
 		if flight_mode and not map_authority.allows_flight_at(next_position):
 			next_position.y = minf(next_position.y, map_authority.max_flight_height)
 			velocity.y = 0.0
+		if not map_authority.above_floor(next_position):
+			next_position.y = map_authority.min_ground_y
+			velocity.y = 0.0
 		if map_authority.has_method("is_blocked") and map_authority.is_blocked(next_position):
 			next_position = position
 			velocity = Vector3.ZERO

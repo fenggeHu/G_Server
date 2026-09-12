@@ -23,6 +23,7 @@ func _initialize() -> void:
 		"authority_version": "starter_valley-authority-0",
 		"boundary": {"min_x": -140.0, "max_x": 140.0, "min_z": -140.0, "max_z": 140.0},
 		"flight": {"enabled": true, "max_height": 28.0},
+		"ground": {"min_y": -3.0},
 		"blockers": [
 			{"min_x": -20.0, "max_x": -10.0, "min_z": -20.0, "max_z": -10.0, "min_y": 0.0, "max_y": 10.0}
 		]}))
@@ -31,6 +32,8 @@ func _initialize() -> void:
 	assert(authority.allows_flight_at(Vector3(0.0, 28.0, 0.0)))
 	assert(not authority.allows_flight_at(Vector3(0.0, 28.1, 0.0)))
 	assert(not authority.allows_flight_at(Vector3(141.0, 0.0, 0.0)))
+	assert(authority.above_floor(Vector3(0.0, -3.0, 0.0)))
+	assert(not authority.above_floor(Vector3(0.0, -3.1, 0.0)))
 	assert(authority.blockers.size() == 1)
 	assert(authority.is_blocked(Vector3(-15.0, 2.0, -15.0)))
 	assert(not authority.is_blocked(Vector3(-15.0, 12.0, -15.0)))
@@ -57,6 +60,11 @@ func _initialize() -> void:
 	movement.step(3)
 	assert(movement.position == Vector3(-20.4, 2.0, -15.0), "blocked by structure")
 	assert(movement.velocity == Vector3.ZERO)
+	movement.set_flight_mode(true)
+	movement.position = Vector3(0.0, -5.0, 0.0)
+	assert(movement.enqueue(4, Vector2.ZERO))
+	movement.step(4)
+	assert(movement.position.y == -3.0, "clamped to ground floor")
 	movement.free()
 	var server = load("res://Server/server.gd").new()
 	server.map_authority = authority

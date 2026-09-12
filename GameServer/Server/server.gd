@@ -4,6 +4,7 @@ const P = preload("res://Shared/protocol.gd")
 const POLICY = preload("res://Shared/network_policy.gd")
 const Movement = preload("res://Server/movement.gd")
 const WorldItems = preload("res://Server/world_items.gd")
+const Abilities = preload("res://Server/abilities.gd")
 const MapAuthority = preload("res://Server/map_authority.gd")
 var entities: Dictionary = {}
 var server_tick := 0
@@ -26,6 +27,8 @@ var player_health: Dictionary = {}
 var progress_snapshots: Dictionary = {}
 var quest_snapshots: Dictionary = {}
 var enemy_attack_last: Dictionary = {}
+var ability_seen: Dictionary = {}
+var ability_last: Dictionary = {}
 var reconnect_tokens: Dictionary = {}
 var disconnected: Dictionary = {}
 var grace_timer: Timer
@@ -160,6 +163,10 @@ func _remove_peer(id: int) -> void:
 	pending.erase(id)
 	var player_id: String = identities.get(id, "")
 	enemy_attack_last.erase(id)
+	ability_seen.erase(player_id)
+	for key in ability_last.keys():
+		if String(key).begins_with(player_id + ":"):
+			ability_last.erase(key)
 	if was_authenticated:
 		if disconnected.has(player_id):
 			var old = disconnected[player_id].get("entity")
@@ -550,8 +557,35 @@ func _record_attack(id: int, attack_id: String, now: int) -> void:
 	attack_last[id] = now
 
 func _apply_attack(now: int) -> void:
-	if enemy.dead: return
-	enemy.hp -= 10
+	_apply_enemy_damage(10, now)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_ability(target_id: String, ability_id: String, request_id: String) -> void:
+	var id := multiplayer.get_remote_sender_id()
+	var now := Time.get_ticks_msec()
+	if not _can_use_ability(id, target_id, ability_id, request_id, now): return
+	_record_ability(id, ability_id, request_id, now)
+	_apply_enemy_damage(int(Abilities.definition(ability_id).get("damage", 0)), now)
+
+func _can_use_ability(id: int, target_id: String, ability_id: String, request_id: String, now: int) -> bool:
+	if not combat_enabled or not identities.has(id) or not entities.has(id) or not enemy_node or target_id != "enemy_1": return false
+	if not Abilities.has_ability(ability_id) or request_id.is_empty() or request_id.length() > 128: return false
+	var key: String = identities[id]
+	if ability_seen.has(key) and ability_seen[key].has(request_id): return false
+	var definition := Abilities.definition(ability_id)
+	if now - int(ability_last.get(key + ":" + ability_id, -1000000)) < int(definition.get("cooldown_ms", 0)): return false
+	var ability_range := float(definition.get("max_range", 0.0))
+	return entities[id].global_position.distance_squared_to(enemy_node.global_position) <= ability_range * ability_range
+
+func _record_ability(id: int, ability_id: String, request_id: String, now: int) -> void:
+	var key: String = identities[id]
+	ability_seen[key] = ability_seen.get(key, {})
+	ability_seen[key][request_id] = true
+	ability_last[key + ":" + ability_id] = now
+
+func _apply_enemy_damage(damage: int, now: int) -> void:
+	if enemy.dead or damage <= 0: return
+	enemy.hp = maxi(enemy.hp - damage, 0)
 	enemy.revision += 1
 	health_changed.rpc("enemy_1", enemy.hp, enemy.revision)
 	if enemy.hp == 0:

@@ -94,6 +94,7 @@ func ground_height(x: float, z: float) -> float:
 
 func _load_ground(grid_path: String, expected_sha256: String) -> void:
 	_ground_resolution = 0
+	_ground_size = 0.0
 	_ground_heights = PackedFloat32Array()
 	if grid_path.is_empty() or not FileAccess.file_exists(grid_path):
 		return
@@ -114,11 +115,14 @@ func _load_ground(grid_path: String, expected_sha256: String) -> void:
 	var resolution := int(data.get("resolution", 0))
 	if resolution < 2 or heights.size() != resolution * resolution:
 		return
+	var size := float(data.get("size", 0.0))
+	if not is_finite(size) or size <= 0.0:
+		return
 	var packed := PackedFloat32Array()
 	for value in heights:
 		packed.append(float(value))
 	_ground_resolution = resolution
-	_ground_size = float(data.get("size", 0.0))
+	_ground_size = size
 	_ground_heights = packed
 
 

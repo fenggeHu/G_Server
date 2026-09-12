@@ -5,6 +5,7 @@ const POLICY = preload("res://Shared/network_policy.gd")
 const Movement = preload("res://Server/movement.gd")
 const WorldItems = preload("res://Server/world_items.gd")
 const Abilities = preload("res://Server/abilities.gd")
+const Enemies = preload("res://Server/enemies.gd")
 const MapAuthority = preload("res://Server/map_authority.gd")
 var entities: Dictionary = {}
 var server_tick := 0
@@ -20,7 +21,7 @@ var leases: Dictionary = {}
 var pickup_entities := WorldItems.build()
 var heartbeat: Timer
 var combat_enabled := false
-var enemy := {"hp": 30, "revision": 1, "dead": false, "respawn_at": 0}
+var enemies: Dictionary = {}
 var attack_seen: Dictionary = {}
 var attack_last: Dictionary = {}
 var player_health: Dictionary = {}
@@ -33,9 +34,6 @@ var reconnect_tokens: Dictionary = {}
 var disconnected: Dictionary = {}
 var grace_timer: Timer
 const ENEMY_ATTACK_RANGE_SQ := 9.0
-const ENEMY_ATTACK_DAMAGE := 10
-const ENEMY_ATTACK_COOLDOWN_MS := 1000
-var enemy_node: Node3D
 var preset_id := "exploration"
 var content_hash := P.CONTENT_HASH
 var map_authority = null
@@ -66,6 +64,8 @@ func _start() -> void:
 	if map_authority == null:
 		_fatal()
 		return
+	if combat_enabled:
+		_build_enemies()
 	base = OS.get_environment("G0_BACKEND_URL").trim_suffix("/")
 	service_token = OS.get_environment("ROOM_SERVICE_TOKEN")
 	if not POLICY.backend_allowed(base) or service_token.length() < 32:
@@ -85,8 +85,6 @@ func _start() -> void:
 	if not await _register_room(port):
 		_fatal()
 		return
-	if combat_enabled:
-		enemy_node = Node3D.new(); enemy_node.name = "enemy_1"; enemy_node.position = Vector3(0, 0, 2); add_child(enemy_node)
 	if loopback:
 		peer.set_bind_ip("127.0.0.1")
 	if peer.create_server(port, 16) != OK:
@@ -105,7 +103,13 @@ func _start() -> void:
 		for existing in identities:
 			if existing != id: player_joined.rpc_id(id, identities[existing], existing, identities.size())
 		player_joined.rpc(identities[id], id, identities.size())
-		if combat_enabled: health_changed.rpc_id(id, "enemy_1", enemy.hp, enemy.revision)
+		if combat_enabled:
+			for target in enemies:
+				var state: Dictionary = enemies[target]
+				if state.dead:
+					entity_died.rpc_id(id, target, state.revision)
+				else:
+					health_changed.rpc_id(id, target, state.hp, state.revision)
 		if player_health.has(id):
 			var own_health: Dictionary = player_health[id]
 			player_health_changed.rpc_id(id, identities[id], own_health.hp, own_health.max_hp, own_health.revision)
@@ -128,6 +132,33 @@ func _start() -> void:
 	add_child(grace_timer)
 	grace_timer.start()
 	print("G0_SERVER_LISTENING")
+
+func _build_enemies() -> void:
+	enemies.clear()
+	if map_authority == null or not Enemies.is_valid():
+		push_warning("Server: enemy catalog unavailable")
+		return
+	for entry in map_authority.enemies():
+		var enemy_id := String(entry.get("id", ""))
+		var enemy_type := String(entry.get("type", ""))
+		if enemy_id.is_empty() or not Enemies.has_enemy(enemy_type):
+			push_warning("Server: unknown enemy type '%s'" % enemy_type)
+			continue
+		var max_hp := clampi(Enemies.hp(enemy_type), 1, 100000)
+		enemies[enemy_id] = {
+			"id": enemy_id,
+			"type": enemy_type,
+			"hp": max_hp,
+			"max_hp": max_hp,
+			"damage": clampi(Enemies.damage(enemy_type), 0, 100000),
+			"respawn_ms": clampi(Enemies.respawn_ms(enemy_type), 0, 3600000),
+			"attack_cooldown_ms": clampi(Enemies.attack_cooldown_ms(enemy_type), 0, 3600000),
+			"revision": 1,
+			"dead": false,
+			"respawn_at": 0,
+			"position": map_authority.enemy_position(enemy_id),
+		}
+	print("G0_SERVER_ENEMIES_READY count=" + str(enemies.size()))
 
 func _room_post(path: String, body: Dictionary) -> Array:
 	var http := HTTPRequest.new()
@@ -162,7 +193,9 @@ func _remove_peer(id: int) -> void:
 	var was_authenticated := identities.has(id)
 	pending.erase(id)
 	var player_id: String = identities.get(id, "")
-	enemy_attack_last.erase(id)
+	for key in enemy_attack_last.keys():
+		if String(key).ends_with(":" + str(id)):
+			enemy_attack_last.erase(key)
 	ability_seen.erase(player_id)
 	for key in ability_last.keys():
 		if String(key).begins_with(player_id + ":"):
@@ -392,7 +425,7 @@ func _apply_player_damage(connection_id: int, damage: int) -> bool:
 	state.hp = maxi(state.hp - damage, 0)
 	state.revision += 1
 	player_health[connection_id] = state
-	player_health_changed.rpc(identities[connection_id], state.hp, state.max_hp, state.revision)
+	_rpc_player_health(identities[connection_id], state.hp, state.max_hp, state.revision)
 	return true
 
 var _last_progress_status := 0
@@ -491,8 +524,8 @@ func _fatal() -> void:
 	get_tree().quit(1)
 
 func _physics_process(_delta: float) -> void:
-	if combat_enabled and enemy.dead and Time.get_ticks_msec() >= enemy.respawn_at:
-		enemy = {"hp": 30, "revision": enemy.revision + 1, "dead": false, "respawn_at": 0}; entity_spawned.rpc("enemy_1", enemy.revision)
+	if combat_enabled:
+		_tick_enemy_respawns(Time.get_ticks_msec())
 	server_tick = (server_tick + 1) & 0xffffffff
 	if combat_enabled:
 		_tick_enemy_attacks()
@@ -505,20 +538,37 @@ func _physics_process(_delta: float) -> void:
 			if identities.has(recipient):
 				snapshot.rpc_id(recipient, identities[id], entity.position, entity.velocity, server_tick, entity.connection_epoch, entity.last_processed_input)
 
+func _tick_enemy_respawns(now: int) -> void:
+	for target in enemies:
+		var state: Dictionary = enemies[target]
+		if state.dead and now >= int(state.respawn_at):
+			state.hp = state.max_hp
+			state.revision = int(state.revision) + 1
+			state.dead = false
+			state.respawn_at = 0
+			enemies[target] = state
+			_rpc_spawned(target, state.revision)
+
+
 func _tick_enemy_attacks() -> void:
-	if enemy.dead or enemy_node == null:
+	if enemies.is_empty():
 		return
 	var now := Time.get_ticks_msec()
-	for id in entities:
-		if not identities.has(id) or not player_health.has(id):
+	for target in enemies:
+		var state: Dictionary = enemies[target]
+		if state.dead:
 			continue
-		if now - int(enemy_attack_last.get(id, -1000000)) < ENEMY_ATTACK_COOLDOWN_MS:
-			continue
-		var entity = entities[id]
-		if entity.global_position.distance_squared_to(enemy_node.global_position) > ENEMY_ATTACK_RANGE_SQ:
-			continue
-		if _apply_player_damage(id, ENEMY_ATTACK_DAMAGE):
-			enemy_attack_last[id] = now
+		for id in entities:
+			if not identities.has(id) or not player_health.has(id):
+				continue
+			var key: String = String(target) + ":" + str(id)
+			if now - int(enemy_attack_last.get(key, -1000000)) < int(state.attack_cooldown_ms):
+				continue
+			var entity = entities[id]
+			if entity.global_position.distance_squared_to(state.position) > ENEMY_ATTACK_RANGE_SQ:
+				continue
+			if _apply_player_damage(id, int(state.damage)):
+				enemy_attack_last[key] = now
 
 @rpc("any_peer", "call_remote", "unreliable_ordered", 0)
 func move_input(sequence: int, direction: Vector2) -> void:
@@ -542,22 +592,25 @@ func request_attack(target_id: String, attack_id: String) -> void:
 	var now := Time.get_ticks_msec()
 	if not _can_attack(id, target_id, attack_id, now): return
 	_record_attack(id, attack_id, now)
-	_apply_attack(now)
+	_apply_attack(target_id, now)
 
 func _can_attack(id: int, target_id: String, attack_id: String, now: int) -> bool:
-	if not combat_enabled or not identities.has(id) or not entities.has(id) or not enemy_node or target_id != "enemy_1": return false
+	if not combat_enabled or not identities.has(id) or not entities.has(id): return false
+	if not enemies.has(target_id): return false
+	var target: Dictionary = enemies[target_id]
+	if target.dead: return false
 	if attack_id.is_empty() or attack_id.length() > 128: return false
 	if attack_seen.has(identities[id]) and attack_seen[identities[id]].has(attack_id): return false
 	if now - int(attack_last.get(id, -1000000)) < P.ATTACK_COOLDOWN_MS: return false
-	return entities[id].global_position.distance_squared_to(enemy_node.global_position) <= 9.0
+	return entities[id].global_position.distance_squared_to(target.position) <= 9.0
 
 func _record_attack(id: int, attack_id: String, now: int) -> void:
 	attack_seen[identities[id]] = attack_seen.get(identities[id], {})
 	attack_seen[identities[id]][attack_id] = true
 	attack_last[id] = now
 
-func _apply_attack(now: int) -> void:
-	_apply_enemy_damage(10, now)
+func _apply_attack(target_id: String, now: int) -> void:
+	_apply_enemy_damage(target_id, 10, now)
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_ability(target_id: String, ability_id: String, request_id: String) -> void:
@@ -565,17 +618,20 @@ func request_ability(target_id: String, ability_id: String, request_id: String) 
 	var now := Time.get_ticks_msec()
 	if not _can_use_ability(id, target_id, ability_id, request_id, now): return
 	_record_ability(id, ability_id, request_id, now)
-	_apply_enemy_damage(int(Abilities.definition(ability_id).get("damage", 0)), now)
+	_apply_enemy_damage(target_id, int(Abilities.definition(ability_id).get("damage", 0)), now)
 
 func _can_use_ability(id: int, target_id: String, ability_id: String, request_id: String, now: int) -> bool:
-	if not combat_enabled or not identities.has(id) or not entities.has(id) or not enemy_node or target_id != "enemy_1": return false
+	if not combat_enabled or not identities.has(id) or not entities.has(id): return false
+	if not enemies.has(target_id): return false
+	var target: Dictionary = enemies[target_id]
+	if target.dead: return false
 	if not Abilities.has_ability(ability_id) or request_id.is_empty() or request_id.length() > 128: return false
 	var key: String = identities[id]
 	if ability_seen.has(key) and ability_seen[key].has(request_id): return false
 	var definition := Abilities.definition(ability_id)
 	if now - int(ability_last.get(key + ":" + ability_id, -1000000)) < int(definition.get("cooldown_ms", 0)): return false
 	var ability_range := float(definition.get("max_range", 0.0))
-	return entities[id].global_position.distance_squared_to(enemy_node.global_position) <= ability_range * ability_range
+	return entities[id].global_position.distance_squared_to(target.position) <= ability_range * ability_range
 
 func _record_ability(id: int, ability_id: String, request_id: String, now: int) -> void:
 	var key: String = identities[id]
@@ -583,15 +639,35 @@ func _record_ability(id: int, ability_id: String, request_id: String, now: int) 
 	ability_seen[key][request_id] = true
 	ability_last[key + ":" + ability_id] = now
 
-func _apply_enemy_damage(damage: int, now: int) -> void:
-	if enemy.dead or damage <= 0: return
-	enemy.hp = maxi(enemy.hp - damage, 0)
-	enemy.revision += 1
-	health_changed.rpc("enemy_1", enemy.hp, enemy.revision)
-	if enemy.hp == 0:
-		enemy.dead = true
-		enemy.respawn_at = now + 5000
-		entity_died.rpc("enemy_1", enemy.revision)
+func _apply_enemy_damage(enemy_id: String, damage: int, now: int) -> void:
+	if not enemies.has(enemy_id) or damage <= 0: return
+	var target: Dictionary = enemies[enemy_id]
+	if target.dead: return
+	target.hp = maxi(int(target.hp) - damage, 0)
+	target.revision = int(target.revision) + 1
+	enemies[enemy_id] = target
+	_rpc_health(enemy_id, target.hp, target.revision)
+	if target.hp == 0:
+		target.dead = true
+		target.respawn_at = now + int(target.respawn_ms)
+		enemies[enemy_id] = target
+		_rpc_died(enemy_id, target.revision)
+
+
+func _rpc_health(enemy_id: String, hp: int, revision: int) -> void:
+	if is_inside_tree(): health_changed.rpc(enemy_id, hp, revision)
+
+
+func _rpc_died(enemy_id: String, revision: int) -> void:
+	if is_inside_tree(): entity_died.rpc(enemy_id, revision)
+
+
+func _rpc_spawned(enemy_id: String, revision: int) -> void:
+	if is_inside_tree(): entity_spawned.rpc(enemy_id, revision)
+
+
+func _rpc_player_health(player_id: String, hp: int, max_hp: int, revision: int) -> void:
+	if is_inside_tree(): player_health_changed.rpc(player_id, hp, max_hp, revision)
 @rpc("authority", "call_remote", "reliable") func health_changed(_entity_id: String, _hp: int, _revision: int) -> void: pass
 @rpc("authority", "call_remote", "reliable") func entity_died(_entity_id: String, _revision: int) -> void: pass
 @rpc("authority", "call_remote", "reliable") func entity_spawned(_entity_id: String, _revision: int) -> void: pass

@@ -1,0 +1,72 @@
+{
+  "map_id": "forest_sanctuary",
+  "authority_version": "forest_sanctuary-authority-0",
+  "boundary": {
+    "min_x": -200.0,
+    "max_x": 200.0,
+    "min_z": -200.0,
+    "max_z": 200.0
+  },
+  "flight": {
+    "enabled": true,
+    "max_height": 60.0
+  },
+  "blockers": [
+    {
+      "min_x": 5.2,
+      "max_x": 6.8,
+      "min_z": 5.2,
+      "max_z": 6.8,
+      "min_y": 4.0,
+      "max_y": 5.2
+    },
+    {
+      "min_x": -4.5,
+      "max_x": -3.5,
+      "min_z": 4.5,
+      "max_z": 5.5,
+      "min_y": 4.0,
+      "max_y": 4.8
+    },
+    {
+      "min_x": 4.6,
+      "max_x": 5.4,
+      "min_z": -4.4,
+      "max_z": -3.6,
+      "min_y": 4.0,
+      "max_y": 5.0
+    },
+    {
+      "min_x": 109.0,
+      "max_x": 111.0,
+      "min_z": 149.0,
+      "max_z": 151.0,
+      "min_y": 6.0,
+      "max_y": 8.2
+    },
+    {
+      "min_x": -132.5,
+      "max_x": -127.5,
+      "min_z": -142.5,
+      "max_z": -137.5,
+      "min_y": 22.0,
+      "max_y": 32.0
+    },
+    {
+      "min_x": 119.0,
+      "max_x": 121.0,
+      "min_z": -91.0,
+      "max_z": -89.0,
+      "min_y": 2.0,
+      "max_y": 4.2
+    }
+  ],
+  "ground": {
+    "min_y": -1.5,
+    "max_y": 22.0,
+    "resolution": 129,
+    "size": 500.0,
+    "grid_path": "res://Content/world/forest_sanctuary_ground.json",
+    "sha256": "bb3adfbe7098a24a1a89cb34b73d1bfe3af03ab7d62bad93df34b71c19e2d1f3"
+  }
+}

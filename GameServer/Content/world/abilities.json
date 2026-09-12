@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "abilities": {
+    "heavy_strike": {
+      "display_key": "ui_ability_heavy_strike",
+      "damage": 25,
+      "cooldown_ms": 1500,
+      "max_range": 3.5
+    }
+  }
+}

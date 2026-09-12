@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "manifest_cases": [
+    {
+      "name": "valid_entry",
+      "expect": "accept",
+      "entry": {
+        "id": "fixture_map",
+        "definition": "res://Content/world/world_config.json",
+        "content_version": "fixture-0",
+        "authority_version": "fixture-authority-0",
+        "api_version": "1.0",
+        "min_engine_version": "1.0.0"
+      }
+    },
+    {
+      "name": "unknown_field_rejected",
+      "expect": "reject",
+      "entry": {
+        "id": "fixture_map",
+        "definition": "res://Content/world/world_config.json",
+        "content_version": "fixture-0",
+        "authority_version": "fixture-authority-0",
+        "api_version": "1.0",
+        "min_engine_version": "1.0.0",
+        "surprise": true
+      }
+    },
+    {
+      "name": "missing_api_version_rejected",
+      "expect": "reject",
+      "entry": {
+        "id": "fixture_map",
+        "definition": "res://Content/world/world_config.json",
+        "content_version": "fixture-0",
+        "authority_version": "fixture-authority-0",
+        "min_engine_version": "1.0.0"
+      }
+    },
+    {
+      "name": "incompatible_api_rejected",
+      "expect": "reject",
+      "entry": {
+        "id": "fixture_map",
+        "definition": "res://Content/world/world_config.json",
+        "content_version": "fixture-0",
+        "authority_version": "fixture-authority-0",
+        "api_version": "2.0",
+        "min_engine_version": "1.0.0"
+      }
+    },
+    {
+      "name": "unknown_capability_rejected",
+      "expect": "reject",
+      "entry": {
+        "id": "fixture_map",
+        "definition": "res://Content/world/world_config.json",
+        "content_version": "fixture-0",
+        "authority_version": "fixture-authority-0",
+        "api_version": "1.0",
+        "min_engine_version": "1.0.0",
+        "required_capabilities": ["world.unknown"]
+      }
+    },
+    {
+      "name": "engine_below_min_rejected",
+      "expect": "reject",
+      "entry": {
+        "id": "fixture_map",
+        "definition": "res://Content/world/world_config.json",
+        "content_version": "fixture-0",
+        "authority_version": "fixture-authority-0",
+        "api_version": "1.0",
+        "min_engine_version": "9.0.0"
+      }
+    },
+    {
+      "name": "invalid_id_rejected",
+      "expect": "reject",
+      "entry": {
+        "id": "bad-id",
+        "definition": "res://Content/world/world_config.json",
+        "content_version": "fixture-0",
+        "authority_version": "fixture-authority-0",
+        "api_version": "1.0",
+        "min_engine_version": "1.0.0"
+      }
+    },
+    {
+      "name": "missing_definition_rejected",
+      "expect": "reject",
+      "entry": {
+        "id": "fixture_map",
+        "definition": "res://Content/world/packs/does_not_exist/definition.json",
+        "content_version": "fixture-0",
+        "authority_version": "fixture-authority-0",
+        "api_version": "1.0",
+        "min_engine_version": "1.0.0"
+      }
+    }
+  ],
+  "authority_cases": [
+    {
+      "name": "valid_authority",
+      "expect": "accept",
+      "authority": {
+        "map_id": "fixture_map",
+        "authority_version": "fixture-authority-0",
+        "boundary": { "min_x": -100.0, "max_x": 100.0, "min_z": -100.0, "max_z": 100.0 },
+        "flight": { "enabled": true, "max_height": 30.0 },
+        "ground_validation": "heightmap"
+      }
+    },
+    {
+      "name": "inverted_x_rejected",
+      "expect": "reject",
+      "authority": {
+        "map_id": "fixture_map",
+        "authority_version": "fixture-authority-0",
+        "boundary": { "min_x": 100.0, "max_x": -100.0, "min_z": -100.0, "max_z": 100.0 },
+        "flight": { "enabled": true, "max_height": 30.0 },
+        "ground_validation": "heightmap"
+      }
+    },
+    {
+      "name": "inverted_z_rejected",
+      "expect": "reject",
+      "authority": {
+        "map_id": "fixture_map",
+        "authority_version": "fixture-authority-0",
+        "boundary": { "min_x": -100.0, "max_x": 100.0, "min_z": 100.0, "max_z": -100.0 },
+        "flight": { "enabled": true, "max_height": 30.0 },
+        "ground_validation": "heightmap"
+      }
+    },
+    {
+      "name": "negative_flight_height_rejected",
+      "expect": "reject",
+      "authority": {
+        "map_id": "fixture_map",
+        "authority_version": "fixture-authority-0",
+        "boundary": { "min_x": -100.0, "max_x": 100.0, "min_z": -100.0, "max_z": 100.0 },
+        "flight": { "enabled": true, "max_height": -5.0 },
+        "ground_validation": "heightmap"
+      }
+    }
+  ]
+}

@@ -2,9 +2,9 @@
 
 本仓库含 `Backend/`（Go module）与 `GameServer/`（Godot headless）。开始前：
 
-1. 读集合规范：
-   - `../docs/AI_Agent三方并行开发规范.md`
-   - 绝对路径：`/Users/max/aigame/docs/`
+1. 读集合规范（绝对路径 `/Users/max/aigame/docs/`）：
+   - 引擎研发：`docs/核心架构/引擎研发规范.md`
+   - `docs/AI_Agent三方并行开发规范.md`
    - 规范不可达时停止写代码并向用户报告。
 
 2. 角色来自任务卡；本仓库默认归 Server Agent。按任务卡授权路径工作。

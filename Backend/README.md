@@ -6,7 +6,7 @@ Cross-project authentication smoke test (temporary PostgreSQL; Python standard l
 go run ./cmd/testdb python3 ../../3D_App/Tests/g0_integration.py
 ```
 
-This directory is an independent replacement implementation and does not modify the legacy Python backend. It implements the G0 HTTP API, PostgreSQL migrations, Argon2id account seeding, session/ticket security rules, and isolated integration testing.
+This directory implements the G0 HTTP API, PostgreSQL migrations, Argon2id account seeding, session/ticket security rules, and isolated integration testing.
 
 Required environment: `DATABASE_URL`, `ROOM_SERVICE_TOKEN` (minimum 32 characters). Run `go run . migrate`, then `G0_TEST_PASSWORD='...' go run . seed USERNAME`, then `ALLOW_LOOPBACK_HTTP=1 go run .` for loopback development. Production requires `TLS_CERT_FILE` and `TLS_KEY_FILE`.
 

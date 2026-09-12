@@ -11,6 +11,7 @@ var flight_enabled := false
 var max_flight_height := 0.0
 var min_ground_y := -INF
 var blockers: Array = []
+var _enemy_placements: Array = []
 var _ground_resolution := 0
 var _ground_size := 0.0
 var _ground_heights := PackedFloat32Array()
@@ -68,7 +69,54 @@ func configure(data: Dictionary) -> bool:
 			if blocker.min_x >= blocker.max_x or blocker.min_z >= blocker.max_z or blocker.min_y >= blocker.max_y:
 				continue
 			blockers.append(blocker)
+	_parse_enemies(data)
 	return is_valid()
+
+
+func _parse_enemies(data: Dictionary) -> void:
+	_enemy_placements.clear()
+	var raw = data.get("enemies", [])
+	if not raw is Array:
+		return
+	var seen := {}
+	for entry in raw:
+		if not entry is Dictionary:
+			continue
+		var enemy_id := String(entry.get("id", ""))
+		var enemy_type := String(entry.get("type", ""))
+		if enemy_id.is_empty() or enemy_type.is_empty() or seen.has(enemy_id):
+			continue
+		var x := float(entry.get("x", 0.0))
+		var z := float(entry.get("z", 0.0))
+		if not is_finite(x) or not is_finite(z):
+			continue
+		seen[enemy_id] = true
+		_enemy_placements.append({"id": enemy_id, "type": enemy_type, "x": x, "z": z})
+
+
+func enemies() -> Array:
+	return _enemy_placements
+
+
+func has_enemy(enemy_id: String) -> bool:
+	for entry in _enemy_placements:
+		if entry.id == enemy_id:
+			return true
+	return false
+
+
+func enemy_type(enemy_id: String) -> String:
+	for entry in _enemy_placements:
+		if entry.id == enemy_id:
+			return entry.type
+	return ""
+
+
+func enemy_position(enemy_id: String) -> Vector3:
+	for entry in _enemy_placements:
+		if entry.id == enemy_id:
+			return Vector3(entry.x, ground_height(entry.x, entry.z), entry.z)
+	return Vector3.ZERO
 
 
 func has_ground() -> bool:

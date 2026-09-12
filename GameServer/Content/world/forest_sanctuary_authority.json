@@ -61,6 +61,32 @@
       "max_y": 4.2
     }
   ],
+  "enemies": [
+    {
+      "id": "golem_ruins_01",
+      "type": "stone_golem",
+      "x": 120.0,
+      "z": -90.0
+    },
+    {
+      "id": "ghost_grove_01",
+      "type": "wisp",
+      "x": 110.0,
+      "z": 150.0
+    },
+    {
+      "id": "dragon_cliff_01",
+      "type": "dracling",
+      "x": -130.0,
+      "z": -140.0
+    },
+    {
+      "id": "beast_glade_01",
+      "type": "stone_golem",
+      "x": 70.0,
+      "z": 60.0
+    }
+  ],
   "ground": {
     "min_y": -1.5,
     "max_y": 22.0,

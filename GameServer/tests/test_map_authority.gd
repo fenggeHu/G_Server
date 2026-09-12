@@ -26,6 +26,11 @@ func _initialize() -> void:
 		"ground": {"min_y": -3.0},
 		"blockers": [
 			{"min_x": -20.0, "max_x": -10.0, "min_z": -20.0, "max_z": -10.0, "min_y": 0.0, "max_y": 10.0}
+		],
+		"enemies": [
+			{"id": "e1", "type": "dummy", "x": 1.0, "z": 2.0},
+			{"id": "e1", "type": "wisp", "x": 9.0, "z": 9.0},
+			{"id": "", "type": "wisp", "x": 0.0, "z": 0.0}
 		]}))
 	assert(authority.contains_horizontal(Vector3.ZERO))
 	assert(not authority.contains_horizontal(Vector3(141.0, 0.0, 0.0)))
@@ -38,6 +43,11 @@ func _initialize() -> void:
 	assert(authority.is_blocked(Vector3(-15.0, 2.0, -15.0)))
 	assert(not authority.is_blocked(Vector3(-15.0, 12.0, -15.0)))
 	assert(not authority.is_blocked(Vector3(0.0, 2.0, 0.0)))
+	assert(authority.enemies().size() == 1, "duplicate/invalid enemy placements skipped")
+	assert(authority.has_enemy("e1"))
+	assert(authority.enemy_type("e1") == "dummy")
+	assert(authority.enemy_position("e1") == Vector3(1.0, -3.0, 2.0))
+	assert(not authority.has_enemy("missing"))
 	var invalid := MapAuthority.new()
 	assert(not invalid.configure({
 		"map_id": "broken", "authority_version": "v1",

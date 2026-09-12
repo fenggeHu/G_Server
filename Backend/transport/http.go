@@ -100,12 +100,15 @@ type ticketReq struct {
 	Content string `json:"gameplay_content_hash"`
 }
 type redeemReq struct {
-	Ticket  string `json:"ticket"`
-	Room    string `json:"room_id"`
-	Preset  string `json:"preset_id"`
-	Proto   int    `json:"protocol_version"`
-	Content string `json:"gameplay_content_hash"`
-	Config  string `json:"resolved_config_hash"`
+	Ticket              string `json:"ticket"`
+	Room                string `json:"room_id"`
+	Preset              string `json:"preset_id"`
+	Proto               int    `json:"protocol_version"`
+	Content             string `json:"gameplay_content_hash"`
+	Config              string `json:"resolved_config_hash"`
+	MapID               string `json:"map_id"`
+	MapContentVersion   string `json:"map_content_version"`
+	MapAuthorityVersion string `json:"map_authority_version"`
 }
 type leaseReq struct {
 	PlayerID     string  `json:"player_id"`
@@ -232,13 +235,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			failure(w, 422, "invalid request")
 			return
 		}
-		out, e := h.Service.Redeem(ctx, domain.Ticket{Token: x.Ticket, RoomID: x.Room, PresetID: x.Preset, Protocol: x.Proto, Content: x.Content, ConfigHash: x.Config})
+		out, e := h.Service.Redeem(ctx, domain.Ticket{Token: x.Ticket, RoomID: x.Room, PresetID: x.Preset, Protocol: x.Proto, Content: x.Content, ConfigHash: x.Config, MapID: x.MapID, MapContentVersion: x.MapContentVersion, MapAuthorityVersion: x.MapAuthorityVersion})
 		if e != nil {
-			fmt.Printf("REDEEM_ERR token=%s room=%s preset=%s err=%v\n", x.Ticket, x.Room, x.Preset, e)
+			fmt.Printf("REDEEM_ERR room=%s preset=%s err=%v\n", x.Room, x.Preset, e)
 			dbError(w, e)
 			return
 		}
-		response(w, 200, map[string]string{"player_id": out.PlayerID, "room_id": out.RoomID, "preset_id": out.PresetID, "resolved_config_hash": out.ConfigHash})
+		response(w, 200, map[string]string{"player_id": out.PlayerID, "room_id": out.RoomID, "preset_id": out.PresetID, "resolved_config_hash": out.ConfigHash, "map_id": out.MapID, "map_content_version": out.MapContentVersion, "map_authority_version": out.MapAuthorityVersion})
 		fmt.Printf("REDEEM_OK player=%s room=%s preset=%s\n", out.PlayerID, out.RoomID, out.PresetID)
 		return
 	}

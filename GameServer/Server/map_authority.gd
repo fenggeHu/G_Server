@@ -11,6 +11,9 @@ var flight_enabled := false
 var max_flight_height := 0.0
 var min_ground_y := -INF
 var blockers: Array = []
+var _ground_resolution := 0
+var _ground_size := 0.0
+var _ground_heights := PackedFloat32Array()
 
 
 static func load_json(path: String, expected_map_id: String = "", expected_version: String = ""):
@@ -49,6 +52,8 @@ func configure(data: Dictionary) -> bool:
 	max_flight_height = float(flight.get("max_height", -1.0))
 	var ground = data.get("ground", {})
 	min_ground_y = float(ground.get("min_y", -INF)) if ground is Dictionary else -INF
+	if ground is Dictionary:
+		_load_ground(String(ground.get("grid_path", "")), String(ground.get("sha256", "")))
 	blockers.clear()
 	var raw_blockers = data.get("blockers", [])
 	if raw_blockers is Array:
@@ -64,6 +69,73 @@ func configure(data: Dictionary) -> bool:
 				continue
 			blockers.append(blocker)
 	return is_valid()
+
+
+func has_ground() -> bool:
+	return _ground_resolution >= 2 and _ground_heights.size() == _ground_resolution * _ground_resolution
+
+
+func ground_height(x: float, z: float) -> float:
+	if not has_ground():
+		return min_ground_y
+	var n := _ground_resolution
+	var fx := clampf((x / _ground_size + 0.5) * float(n - 1), 0.0, float(n - 1))
+	var fz := clampf((z / _ground_size + 0.5) * float(n - 1), 0.0, float(n - 1))
+	var x0 := int(fx)
+	var z0 := int(fz)
+	var x1 := mini(x0 + 1, n - 1)
+	var z1 := mini(z0 + 1, n - 1)
+	var tx := fx - float(x0)
+	var tz := fz - float(z0)
+	var top := lerpf(_ground_heights[z0 * n + x0], _ground_heights[z0 * n + x1], tx)
+	var bottom := lerpf(_ground_heights[z1 * n + x0], _ground_heights[z1 * n + x1], tx)
+	return lerpf(top, bottom, tz)
+
+
+func _load_ground(grid_path: String, expected_sha256: String) -> void:
+	_ground_resolution = 0
+	_ground_heights = PackedFloat32Array()
+	if grid_path.is_empty() or not FileAccess.file_exists(grid_path):
+		return
+	if _file_sha256(grid_path) != expected_sha256:
+		return
+	var file := FileAccess.open(grid_path, FileAccess.READ)
+	if file == null:
+		return
+	var parser := JSON.new()
+	var parsed := parser.parse(file.get_as_text())
+	file.close()
+	if parsed != OK or not parser.data is Dictionary:
+		return
+	var data: Dictionary = parser.data
+	var heights = data.get("heights", [])
+	if not heights is Array or heights.size() < 4:
+		return
+	var resolution := int(data.get("resolution", 0))
+	if resolution < 2 or heights.size() != resolution * resolution:
+		return
+	var packed := PackedFloat32Array()
+	for value in heights:
+		packed.append(float(value))
+	_ground_resolution = resolution
+	_ground_size = float(data.get("size", 0.0))
+	_ground_heights = packed
+
+
+func _file_sha256(path: String) -> String:
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		return ""
+	var context := HashingContext.new()
+	if context.start(HashingContext.HASH_SHA256) != OK:
+		file.close()
+		return ""
+	while not file.eof_reached():
+		var chunk := file.get_buffer(4096)
+		if chunk.size() > 0:
+			context.update(chunk)
+	file.close()
+	return context.finish().hex_encode()
 
 
 func is_valid() -> bool:

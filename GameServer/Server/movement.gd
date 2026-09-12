@@ -54,4 +54,7 @@ func step(tick: int) -> void:
 		if map_authority.has_method("is_blocked") and map_authority.is_blocked(next_position):
 			next_position = position
 			velocity = Vector3.ZERO
+		if not flight_mode and map_authority.has_method("has_ground") and map_authority.has_ground():
+			next_position.y = map_authority.ground_height(next_position.x, next_position.z)
+			velocity.y = 0.0
 	position = next_position

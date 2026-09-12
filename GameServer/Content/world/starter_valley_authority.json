@@ -54,6 +54,11 @@
     }
   ],
   "ground": {
-    "min_y": -3.0
+    "min_y": -3.0,
+    "max_y": 6.43976974487305,
+    "resolution": 65,
+    "size": 280.0,
+    "grid_path": "res://Content/world/starter_valley_ground.json",
+    "sha256": "48df071429c672517e8848660d8d3c927379837eed7fba7b85973f4acefb2da9"
   }
 }

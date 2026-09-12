@@ -199,6 +199,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	if path == "/v1/maps" {
+		if r.Method != "GET" {
+			failure(w, 405, "Method Not Allowed")
+			return
+		}
+		auth := strings.Fields(r.Header.Get("Authorization"))
+		if len(auth) != 2 || !strings.EqualFold(auth[0], "Bearer") {
+			failure(w, 401, "unauthorized")
+			return
+		}
+		if _, e := h.Service.Auth(ctx, auth[1]); e != nil {
+			dbError(w, e)
+			return
+		}
+		response(w, 200, map[string]any{"maps": h.Service.MapManifest()})
+		return
+	}
 	if limits[path] == 0 {
 		failure(w, 404, "Not Found")
 		return

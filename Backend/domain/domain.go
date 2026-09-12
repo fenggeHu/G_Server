@@ -8,15 +8,17 @@ import (
 var ErrConflict = errors.New("conflict")
 
 const (
-	Preset              = "exploration"
-	Content             = "g0-empty-v1"
-	CombatPreset        = "coop_combat"
-	CombatContent       = "g4-coop-combat-v1"
-	Room                = "g0-room"
-	Proto               = 1
-	DefaultMap          = "starter_valley"
-	DefaultMapContent   = "starter_valley-0"
-	DefaultMapAuthority = "starter_valley-authority-0"
+	Preset                  = "exploration"
+	Content                 = "g0-empty-v1"
+	CombatPreset            = "coop_combat"
+	CombatContent           = "g4-coop-combat-v1"
+	Room                    = "g0-room"
+	Proto                   = 1
+	DefaultMap              = "starter_valley"
+	DefaultMapContent       = "starter_valley-0"
+	DefaultMapAuthority     = "starter_valley-authority-0"
+	DefaultAPIVersion       = "1.0"
+	DefaultMinEngineVersion = "1.0.0"
 )
 
 type Player struct {

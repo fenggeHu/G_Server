@@ -216,6 +216,9 @@ func (s *Service) CommitQuest(ctx context.Context, in domain.QuestCommit) (domai
 	return s.Store.CommitQuest(ctx, in)
 }
 
+// MapManifest returns the server-controlled release manifest for playable maps.
+func (s *Service) MapManifest() []MapPackage { return MapPackages() }
+
 func (s *Service) AcquireSession(ctx context.Context, playerID, roomID string) (domain.SessionLease, error) {
 	return s.Store.AcquireSession(ctx, playerID, roomID)
 }

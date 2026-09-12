@@ -22,12 +22,19 @@ func _initialize() -> void:
 		"map_id": "starter_valley",
 		"authority_version": "starter_valley-authority-0",
 		"boundary": {"min_x": -140.0, "max_x": 140.0, "min_z": -140.0, "max_z": 140.0},
-		"flight": {"enabled": true, "max_height": 28.0}}))
+		"flight": {"enabled": true, "max_height": 28.0},
+		"blockers": [
+			{"min_x": -20.0, "max_x": -10.0, "min_z": -20.0, "max_z": -10.0, "min_y": 0.0, "max_y": 10.0}
+		]}))
 	assert(authority.contains_horizontal(Vector3.ZERO))
 	assert(not authority.contains_horizontal(Vector3(141.0, 0.0, 0.0)))
 	assert(authority.allows_flight_at(Vector3(0.0, 28.0, 0.0)))
 	assert(not authority.allows_flight_at(Vector3(0.0, 28.1, 0.0)))
 	assert(not authority.allows_flight_at(Vector3(141.0, 0.0, 0.0)))
+	assert(authority.blockers.size() == 1)
+	assert(authority.is_blocked(Vector3(-15.0, 2.0, -15.0)))
+	assert(not authority.is_blocked(Vector3(-15.0, 12.0, -15.0)))
+	assert(not authority.is_blocked(Vector3(0.0, 2.0, 0.0)))
 	var invalid := MapAuthority.new()
 	assert(not invalid.configure({
 		"map_id": "broken", "authority_version": "v1",
@@ -44,6 +51,12 @@ func _initialize() -> void:
 	assert(movement.enqueue(2, Vector2.ZERO))
 	movement.step(2)
 	assert(movement.position.y <= 28.0)
+	movement.flight_mode = false
+	movement.position = Vector3(-20.4, 2.0, -15.0)
+	assert(movement.enqueue(3, Vector2(1.0, 0.0)))
+	movement.step(3)
+	assert(movement.position == Vector3(-20.4, 2.0, -15.0), "blocked by structure")
+	assert(movement.velocity == Vector3.ZERO)
 	movement.free()
 	var server = load("res://Server/server.gd").new()
 	server.map_authority = authority

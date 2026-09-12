@@ -9,6 +9,7 @@ var min_z := 0.0
 var max_z := 0.0
 var flight_enabled := false
 var max_flight_height := 0.0
+var blockers: Array = []
 
 
 static func load_json(path: String, expected_map_id: String = "", expected_version: String = ""):
@@ -45,6 +46,20 @@ func configure(data: Dictionary) -> bool:
 	max_z = float(boundary.get("max_z", -INF))
 	flight_enabled = bool(flight.get("enabled", false))
 	max_flight_height = float(flight.get("max_height", -1.0))
+	blockers.clear()
+	var raw_blockers = data.get("blockers", [])
+	if raw_blockers is Array:
+		for entry in raw_blockers:
+			if not entry is Dictionary:
+				continue
+			var blocker := {
+				"min_x": float(entry.get("min_x", INF)), "max_x": float(entry.get("max_x", -INF)),
+				"min_z": float(entry.get("min_z", INF)), "max_z": float(entry.get("max_z", -INF)),
+				"min_y": float(entry.get("min_y", INF)), "max_y": float(entry.get("max_y", -INF)),
+			}
+			if blocker.min_x >= blocker.max_x or blocker.min_z >= blocker.max_z or blocker.min_y >= blocker.max_y:
+				continue
+			blockers.append(blocker)
 	return is_valid()
 
 
@@ -64,3 +79,17 @@ func contains_horizontal(position: Vector3) -> bool:
 func allows_flight_at(position: Vector3) -> bool:
 	return is_valid() and flight_enabled and contains_horizontal(position) \
 			and position.y <= max_flight_height
+
+
+func is_blocked(position: Vector3, radius: float = 0.35) -> bool:
+	if not is_valid():
+		return false
+	for blocker in blockers:
+		if position.x + radius < blocker.min_x or position.x - radius > blocker.max_x:
+			continue
+		if position.z + radius < blocker.min_z or position.z - radius > blocker.max_z:
+			continue
+		if position.y + radius < blocker.min_y or position.y - radius > blocker.max_y:
+			continue
+		return true
+	return false

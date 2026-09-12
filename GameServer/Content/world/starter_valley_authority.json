@@ -1,6 +1,56 @@
 {
   "map_id": "starter_valley",
   "authority_version": "starter_valley-authority-0",
-  "boundary": { "min_x": -140.0, "max_x": 140.0, "min_z": -140.0, "max_z": 140.0 },
-  "flight": { "enabled": true, "max_height": 28.0 }
+  "boundary": {
+    "min_x": -140.0,
+    "max_x": 140.0,
+    "min_z": -140.0,
+    "max_z": 140.0
+  },
+  "flight": {
+    "enabled": true,
+    "max_height": 28.0
+  },
+  "blockers": [
+    {
+      "min_x": -17.0,
+      "max_x": -7.0,
+      "min_z": -17.0,
+      "max_z": -7.0,
+      "min_y": 3.0,
+      "max_y": 10.0
+    },
+    {
+      "min_x": 8.0,
+      "max_x": 16.0,
+      "min_z": -16.0,
+      "max_z": -8.0,
+      "min_y": 3.0,
+      "max_y": 8.5
+    },
+    {
+      "min_x": 9.5,
+      "max_x": 16.5,
+      "min_z": 3.5,
+      "max_z": 10.5,
+      "min_y": 3.0,
+      "max_y": 8.0
+    },
+    {
+      "min_x": -25.5,
+      "max_x": -20.5,
+      "min_z": -20.5,
+      "max_z": -15.5,
+      "min_y": 3.0,
+      "max_y": 13.0
+    },
+    {
+      "min_x": -7.0,
+      "max_x": -5.0,
+      "min_z": -5.0,
+      "max_z": -3.0,
+      "min_y": 3.0,
+      "max_y": 5.2
+    }
+  ]
 }

@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "enemies": {
+    "dummy": {
+      "display_key": "enemy.dummy",
+      "model": "",
+      "height": 1.5,
+      "hp": 30,
+      "damage": 10,
+      "respawn_ms": 5000,
+      "attack_cooldown_ms": 1000
+    },
+    "stone_golem": {
+      "display_key": "enemy.stone_golem",
+      "model": "res://Content/art/characters/Goleling.gltf",
+      "height": 2.2,
+      "hp": 80,
+      "damage": 16,
+      "respawn_ms": 8000,
+      "attack_cooldown_ms": 1200
+    },
+    "wisp": {
+      "display_key": "enemy.wisp",
+      "model": "res://Content/art/characters/Ghost.gltf",
+      "height": 1.8,
+      "hp": 40,
+      "damage": 8,
+      "respawn_ms": 6000,
+      "attack_cooldown_ms": 900
+    },
+    "dracling": {
+      "display_key": "enemy.dracling",
+      "model": "res://Content/art/characters/Dragon.gltf",
+      "height": 2.6,
+      "hp": 120,
+      "damage": 18,
+      "respawn_ms": 10000,
+      "attack_cooldown_ms": 1500
+    }
+  }
+}

@@ -15,8 +15,11 @@ const (
 	Room                    = "g0-room"
 	Proto                   = 1
 	DefaultMap              = "starter_valley"
-	DefaultMapContent       = "starter_valley-0"
-	DefaultMapAuthority     = "starter_valley-authority-0"
+	DefaultMapContent       = "starter_valley-1"
+	DefaultMapAuthority     = "starter_valley-authority-1"
+	ForestMap               = "forest_sanctuary"
+	ForestMapContent        = "forest_sanctuary-1"
+	ForestMapAuthority      = "forest_sanctuary-authority-1"
 	DefaultAPIVersion       = "1.0"
 	DefaultMinEngineVersion = "1.0.0"
 )

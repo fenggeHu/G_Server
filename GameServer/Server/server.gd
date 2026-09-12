@@ -38,8 +38,8 @@ var preset_id := "exploration"
 var content_hash := P.CONTENT_HASH
 var map_authority = null
 var map_id := "starter_valley"
-var map_content_version := "starter_valley-0"
-var map_authority_version := "starter_valley-authority-0"
+var map_content_version := "starter_valley-1"
+var map_authority_version := "starter_valley-authority-1"
 
 func _ready() -> void:
 	Engine.physics_ticks_per_second = 60
@@ -51,8 +51,8 @@ func _start() -> void:
 	combat_enabled = preset_id == "coop_combat"
 	content_hash = P.content_hash_for(preset_id)
 	map_id = OS.get_environment("ROOM_MAP_ID") if not OS.get_environment("ROOM_MAP_ID").is_empty() else "starter_valley"
-	map_content_version = OS.get_environment("ROOM_MAP_CONTENT_VERSION") if not OS.get_environment("ROOM_MAP_CONTENT_VERSION").is_empty() else "starter_valley-0"
-	map_authority_version = OS.get_environment("ROOM_MAP_AUTHORITY_VERSION") if not OS.get_environment("ROOM_MAP_AUTHORITY_VERSION").is_empty() else "starter_valley-authority-0"
+	map_content_version = OS.get_environment("ROOM_MAP_CONTENT_VERSION") if not OS.get_environment("ROOM_MAP_CONTENT_VERSION").is_empty() else "starter_valley-1"
+	map_authority_version = OS.get_environment("ROOM_MAP_AUTHORITY_VERSION") if not OS.get_environment("ROOM_MAP_AUTHORITY_VERSION").is_empty() else "starter_valley-authority-1"
 	if not WorldItems.validate(pickup_entities):
 		print("G0_WORLD_ITEMS_INVALID")
 		_fatal()

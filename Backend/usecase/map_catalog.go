@@ -40,6 +40,13 @@ var mapCatalog = map[string]MapDefinition{
 		APIVersion:       domain.DefaultAPIVersion,
 		MinEngineVersion: domain.DefaultMinEngineVersion,
 	},
+	domain.ForestMap: {
+		ID:               domain.ForestMap,
+		ContentVersion:   domain.ForestMapContent,
+		AuthorityVersion: domain.ForestMapAuthority,
+		APIVersion:       domain.DefaultAPIVersion,
+		MinEngineVersion: domain.DefaultMinEngineVersion,
+	},
 }
 
 // MapIDs returns registered map ids in stable order.

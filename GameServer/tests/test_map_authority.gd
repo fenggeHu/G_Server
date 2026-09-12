@@ -20,7 +20,7 @@ func _initialize() -> void:
 	var authority := MapAuthority.new()
 	assert(authority.configure({
 		"map_id": "starter_valley",
-		"authority_version": "starter_valley-authority-0",
+		"authority_version": "starter_valley-authority-1",
 		"boundary": {"min_x": -140.0, "max_x": 140.0, "min_z": -140.0, "max_z": 140.0},
 		"flight": {"enabled": true, "max_height": 28.0},
 		"ground": {"min_y": -3.0},

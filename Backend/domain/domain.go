@@ -18,8 +18,8 @@ const (
 	DefaultMapContent       = "starter_valley-1"
 	DefaultMapAuthority     = "starter_valley-authority-1"
 	ForestMap               = "forest_sanctuary"
-	ForestMapContent        = "forest_sanctuary-4"
-	ForestMapAuthority      = "forest_sanctuary-authority-3"
+	ForestMapContent        = "forest_sanctuary-5"
+	ForestMapAuthority      = "forest_sanctuary-authority-4"
 	DefaultAPIVersion       = "1.0"
 	DefaultMinEngineVersion = "1.0.0"
 )
